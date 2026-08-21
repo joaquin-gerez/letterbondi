@@ -4,6 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig.json tsconfig.server.json vite.config.ts ./
 COPY scripts ./scripts
+COPY public ./public
 COPY src ./src
 RUN npm run build
 

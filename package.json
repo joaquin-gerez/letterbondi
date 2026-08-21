@@ -5,7 +5,9 @@
   "description": "Archivo social de viajes en transporte público argentino",
   "type": "module",
   "main": "dist/server/server/index.js",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "dev:server": "tsx watch src/server/index.ts",
@@ -28,6 +30,7 @@
     "helmet": "^8.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "ws": "^8.21.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -38,6 +41,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/supertest": "^6.0.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.5",
     "concurrently": "^9.2.1",
     "jsdom": "^30.0.1",

@@ -5,11 +5,16 @@ export class ApiError extends Error {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    credentials: 'same-origin',
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      credentials: 'same-origin',
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    });
+  } catch {
+    throw new ApiError('No pudimos conectar con la API. Recargá la página y volvé a intentar.', 0);
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: 'No pudimos completar la solicitud' }));
     throw new ApiError(String(body.error ?? 'No pudimos completar la solicitud'), response.status);

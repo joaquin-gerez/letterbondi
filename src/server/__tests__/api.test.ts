@@ -17,7 +17,10 @@ describe('Letterbondi API', () => {
   afterAll(() => db.close());
 
   it('expone salud, catálogo nacional inicial y OpenAPI', async () => {
-    expect((await agent.get('/api/health')).body).toEqual({ status: 'ok' });
+    const health = await agent.get('/api/health');
+    expect(health.body).toEqual({ status: 'ok' });
+    expect(health.headers['content-security-policy']).not.toContain('upgrade-insecure-requests');
+    expect(health.headers['strict-transport-security']).toBeUndefined();
     const lines = await agent.get('/api/lines?province=Córdoba');
     expect(lines.status).toBe(200);
     expect(lines.body.length).toBeGreaterThan(0);
@@ -26,11 +29,27 @@ describe('Letterbondi API', () => {
     expect(docs.body.openapi).toBe('3.1.0');
   });
 
-  it('rechaza viajes anónimos y datos inválidos', async () => {
-    const anonymous = await request(createApp(db, { secureCookies: false })).post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 5, traveledAt: '2026-08-20' });
-    expect(anonymous.status).toBe(401);
+  it('asigna una identidad estable y limita las reseñas anónimas', async () => {
+    const anonymousAgent = request.agent(createApp(db, { secureCookies: false }));
+    const first = await anonymousAgent.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 5, reviewText: 'Primera anónima', liked: true, tags: ['hora pico'], traveledAt: '2026-08-20' });
+    expect(first.status).toBe(201);
+    expect(first.body.user).toMatchObject({ kind: 'anonymous' });
+    expect(first.body.user.username).toMatch(/^Anon [a-z0-9]{9}$/);
+    expect(first.body.user.color).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(first.body).toMatchObject({ liked: true, tags: ['hora pico'] });
+    expect(first.headers['set-cookie']?.join(';')).toContain('letterbondi_anon=');
+    expect(first.headers['set-cookie']?.join(';')).not.toContain('Secure');
 
-    await agent.post('/api/auth/register').send({ username: 'pasajero', email: 'p@example.com', password: 'contraseña-segura' });
+    const second = await anonymousAgent.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 4, traveledAt: '2026-08-21' });
+    const third = await anonymousAgent.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 3, traveledAt: '2026-08-21' });
+    expect(second.body.user.id).toBe(first.body.user.id);
+    expect(third.status).toBe(201);
+    const limited = await anonymousAgent.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 2, traveledAt: '2026-08-21' });
+    expect(limited.status).toBe(429);
+  });
+
+  it('rechaza datos inválidos aunque exista una sesión', async () => {
+    await agent.post('/api/auth/register').send({ username: 'pasajero', password: 'contraseña-segura' });
     const invalid = await agent.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 9, traveledAt: 'hoy' });
     expect(invalid.status).toBe(400);
   });
@@ -40,7 +59,7 @@ describe('Letterbondi API', () => {
     expect(me.body.user).toMatchObject({ username: 'pasajero' });
 
     const created = await agent.post('/api/trips').send({
-      lineId: 'amba-colectivo-60', rating: 4, reviewText: 'Llegó a horario y viajé sentado.', traveledAt: '2026-08-20',
+      lineId: 'amba-colectivo-60', rating: 4, reviewText: 'Llegó a horario y viajé sentado.', liked: true, tags: ['puntual'], traveledAt: '2026-08-20',
     });
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ rating: 4, user: { username: 'pasajero' }, line: { shortName: '60' } });
@@ -48,12 +67,15 @@ describe('Letterbondi API', () => {
     const profile = await agent.get('/api/users/pasajero');
     expect(profile.body.trips).toHaveLength(1);
     expect(profile.body.trips[0].reviewText).toContain('horario');
+    expect(profile.body.trips[0]).toMatchObject({ liked: true, tags: ['puntual'] });
   });
 
   it('no permite usuarios duplicados y permite cerrar sesión', async () => {
-    const duplicate = await agent.post('/api/auth/register').send({ username: 'pasajero', email: 'otro@example.com', password: 'contraseña-segura' });
+    const duplicate = await agent.post('/api/auth/register').send({ username: 'pasajero', password: 'contraseña-segura' });
     expect(duplicate.status).toBe(409);
     expect((await agent.post('/api/auth/logout')).status).toBe(204);
     expect((await agent.get('/api/auth/me')).body.user).toBeNull();
+    expect((await agent.post('/api/auth/login').send({ username: 'PASAJERO', password: 'contraseña-segura' })).status).toBe(200);
+    expect((await agent.get('/api/auth/me')).body.user).toMatchObject({ username: 'pasajero', email: null });
   });
 });

@@ -26,17 +26,31 @@ export interface PublicUser {
 }
 
 export interface SessionUser extends PublicUser {
-  email: string;
+  email: string | null;
+}
+
+export interface ReviewAuthor {
+  id: string;
+  username: string;
+  kind: 'registered' | 'anonymous';
+  color: string | null;
 }
 
 export interface TripLog {
   id: string;
   line: Pick<TransportLine, 'id' | 'slug' | 'name' | 'shortName' | 'color' | 'textColor' | 'city' | 'province'>;
-  user: PublicUser;
+  user: ReviewAuthor;
   rating: number;
   reviewText: string | null;
+  liked: boolean;
+  tags: string[];
   traveledAt: string;
   createdAt: string;
+}
+
+export interface RealtimeTripEvent {
+  type: 'trip.created';
+  trip: TripLog;
 }
 
 export interface PlatformStats {
@@ -50,12 +64,13 @@ export interface CreateTripInput {
   lineId: string;
   rating: number;
   reviewText?: string;
+  liked?: boolean;
+  tags?: string[];
   traveledAt: string;
 }
 
 export interface AuthInput {
-  username?: string;
-  email: string;
+  username: string;
   password: string;
 }
 

@@ -3,14 +3,22 @@ import type { CreateTripInput, PlatformStats, ProfileResponse, SessionUser, Tran
 import { api } from './api';
 import { AuthDialog } from './components/AuthDialog';
 import { Header } from './components/Header';
+import { HomeHero } from './components/HomeHero';
 import { LineCard } from './components/LineCard';
 import { LogTripDialog } from './components/LogTripDialog';
+import { Pagination } from './components/Pagination';
 import { TripEntry } from './components/TripEntry';
+import { subscribeToTrips } from './realtime';
 
 const MODES: Array<{ value: '' | TransportMode; label: string }> = [
   { value: '', label: 'Todos' }, { value: 'colectivo', label: 'Colectivos' },
-  { value: 'tren', label: 'Trenes' }, { value: 'trolebus', label: 'Trolebuses' },
+  { value: 'tren', label: 'Trenes' }, { value: 'subte', label: 'Subtes' },
 ];
+const PAGE_SIZE = 20;
+
+function prependTrip(current: TripLog[], trip: TripLog) {
+  return current.some((item) => item.id === trip.id) ? current : [trip, ...current].slice(0, 100);
+}
 
 export default function App() {
   const [lines, setLines] = useState<TransportLine[]>([]);
@@ -29,6 +37,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -42,6 +51,8 @@ export default function App() {
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => subscribeToTrips((trip) => setTrips((current) => prependTrip(current, trip))), []);
+
   useEffect(() => {
     if (view !== 'diary' || !user) return;
     api.profile(user.username).then(setProfile).catch((reason) => setError(reason instanceof Error ? reason.message : 'No pudimos cargar tu diario'));
@@ -53,16 +64,65 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  const provinces = useMemo(() => Array.from(new Set(lines.map((line) => line.province))).sort(), [lines]);
+  const publicLines = useMemo(() => lines.filter((line) => line.mode !== 'trolebus'), [lines]);
+  const publicStats = useMemo(() => stats ? { ...stats, lineCount: publicLines.length } : null, [publicLines.length, stats]);
+  const provinces = useMemo(() => Array.from(new Set(publicLines.map((line) => line.province))).sort(), [publicLines]);
   const filteredLines = useMemo(() => {
     const term = query.trim().toLocaleLowerCase('es');
-    return lines.filter((line) => (!mode || line.mode === mode) && (!province || line.province === province) && (!term || [line.name, line.shortName, line.city, line.province, line.operator ?? ''].some((value) => value.toLocaleLowerCase('es').includes(term))));
-  }, [lines, mode, province, query]);
+    return publicLines
+      .filter((line) => (!mode || line.mode === mode) && (!province || line.province === province) && (!term || [line.name, line.shortName, line.city, line.province, line.operator ?? '', line.origin ?? '', line.destination ?? ''].some((value) => value.toLocaleLowerCase('es').includes(term))))
+      .sort((left, right) => right.logCount - left.logCount || (right.averageRating ?? 0) - (left.averageRating ?? 0) || left.name.localeCompare(right.name, 'es', { numeric: true }));
+  }, [publicLines, mode, province, query]);
+  const totalPages = Math.max(1, Math.ceil(filteredLines.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const displayedLines = filteredLines.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const visibleTrips = selectedLineId ? trips.filter((trip) => trip.line.id === selectedLineId) : trips;
-  const selectedLine = lines.find((line) => line.id === selectedLineId) ?? null;
+  const selectedLine = publicLines.find((line) => line.id === selectedLineId) ?? null;
+  const hasCatalogFilters = Boolean(query || mode || province || selectedLineId);
 
   function requestLog() {
     setLogOpen(true);
+  }
+
+  function showCatalog() {
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById('catalog-title');
+      if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function searchFromHeader(value: string) {
+    setQuery(value); setSelectedLineId(null); setPage(1);
+    if (view !== 'explore') setView('explore');
+    showCatalog();
+  }
+
+  function changeMode(nextMode: '' | TransportMode) {
+    setMode(nextMode); setSelectedLineId(null); setPage(1);
+  }
+
+  function resetCatalog() {
+    setQuery(''); setMode(''); setProvince(''); setSelectedLineId(null); setPage(1);
+    showCatalog();
+  }
+
+  function clearQuery() {
+    setQuery(''); setSelectedLineId(null); setPage(1);
+  }
+
+  function changePage(nextPage: number) {
+    setPage(nextPage); setSelectedLineId(null);
+    showCatalog();
+  }
+
+  function browse(nextMode: 'colectivo' | 'tren' | 'subte') {
+    setView('explore'); changeMode(nextMode);
+    showCatalog();
+  }
+
+  function showMembers() {
+    setView('explore');
+    window.requestAnimationFrame(() => document.getElementById('activity-title')?.scrollIntoView({ behavior: 'smooth' }));
   }
 
   async function logout() {
@@ -71,7 +131,9 @@ export default function App() {
   }
 
   async function tripCreated(trip: TripLog, profileUsername = user?.username) {
-    setLogOpen(false); setTrips((current) => [trip, ...current]); setNotice('Viaje guardado en tu diario.');
+    setLogOpen(false);
+    setTrips((current) => prependTrip(current, trip));
+    setNotice(trip.user.kind === 'anonymous' ? 'Reseña publicada como Anon.' : 'Reseña guardada en tu perfil.');
     const [nextLines, nextStats] = await Promise.all([api.lines(), api.stats()]);
     setLines(nextLines); setStats(nextStats);
     if (profileUsername) setProfile(await api.profile(profileUsername));
@@ -100,57 +162,60 @@ export default function App() {
     }
   }
 
+  async function continueAnonymously() {
+    if (!pendingTrip) return;
+    const tripToSave = pendingTrip;
+    const trip = await api.createTrip(tripToSave);
+    setPendingTrip(null);
+    setAuthOpen(false);
+    await tripCreated(trip, undefined);
+  }
+
   return (
     <div className="app-shell">
-      <Header view={view} user={user} onNavigate={setView} onAuth={() => setAuthOpen(true)} onLogout={() => void logout()} onLogTrip={requestLog} />
-      {notice && <div className="notice" role="status">{notice}</div>}
-      <main id="main">
+      <Header view={view} user={user} mode={mode} query={query} onNavigate={setView} onAuth={() => setAuthOpen(true)} onLogout={() => void logout()} onBrowse={browse} onMembers={showMembers} onQueryChange={searchFromHeader} onSearchSubmit={showCatalog} />
+      {notice && <div className="notice" role="status"><img src="/favicon.svg" alt="" />{notice}</div>}
+      <main id="main" className={view === 'explore' ? 'home-main' : 'inner-main'}>
         {view === 'explore' ? (
           <>
-            <section className="intro" aria-labelledby="page-title">
-              <div>
-                <p className="eyebrow">Archivo abierto · Argentina</p>
-                <h1 id="page-title">Cada viaje deja registro.</h1>
-                <p className="intro-copy">Una bitácora pública para recordar, puntuar y contar cómo nos movemos.</p>
-              </div>
-              <dl className="platform-stats">
-                <div><dt>Servicios</dt><dd>{stats?.lineCount ?? '—'}</dd></div>
-                <div><dt>Provincias</dt><dd>{stats?.provinceCount ?? '—'}</dd></div>
-                <div><dt>Viajes</dt><dd>{stats?.logCount ?? '—'}</dd></div>
-              </dl>
-            </section>
+            <HomeHero stats={publicStats} onLogTrip={requestLog} />
 
             {error && <section className="error-panel" role="alert"><strong>No pudimos cargar la aplicación.</strong><span>{error}</span><button onClick={() => void load()}>Reintentar</button></section>}
 
             <section className="catalog" aria-labelledby="catalog-title">
-              <header className="section-heading"><div><p className="index">01</p><h2 id="catalog-title">Servicios</h2></div><p>Cobertura inicial con fuente pública visible en cada ficha.</p></header>
+              <header className="section-heading"><div><h2 id="catalog-title">Buscá tu transporte público</h2></div><p>Más reseñados primero</p></header>
               <div className="filters">
-                <label className="search-field"><span className="sr-only">Buscar servicios</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar línea, ciudad u operador" /></label>
-                <div className="mode-filter" role="group" aria-label="Filtrar por modo">{MODES.map((item) => <button key={item.label} className={mode === item.value ? 'is-active' : ''} onClick={() => setMode(item.value)}>{item.label}</button>)}</div>
-                <label className="province-filter"><span className="sr-only">Provincia</span><select value={province} onChange={(event) => setProvince(event.target.value)}><option value="">Todas las provincias</option>{provinces.map((item) => <option key={item}>{item}</option>)}</select></label>
+                <div className="search-field">
+                  <label><span className="sr-only">Buscar servicios</span><input value={query} onChange={(event) => { setQuery(event.target.value); setSelectedLineId(null); setPage(1); }} placeholder="Buscar línea, ciudad u operador" /></label>
+                  {query ? <button type="button" className="reset-search" onClick={clearQuery} aria-label="Limpiar búsqueda" title="Limpiar búsqueda">×</button> : null}
+                </div>
+                <div className="mode-filter" role="group" aria-label="Filtrar por modo">{MODES.map((item) => <button key={item.label} className={mode === item.value ? 'is-active' : ''} onClick={() => changeMode(item.value)}>{item.label}</button>)}</div>
+                <label className="province-filter"><span className="sr-only">Provincia</span><select value={province} onChange={(event) => { setProvince(event.target.value); setSelectedLineId(null); setPage(1); }}><option value="">Todas las provincias</option>{provinces.map((item) => <option key={item}>{item}</option>)}</select></label>
+                <button type="button" className="reset-filters" onClick={resetCatalog} disabled={!hasCatalogFilters}>Borrar filtros</button>
               </div>
               {loading ? <div className="loading-lines" aria-label="Cargando servicios"><i /><i /><i /></div> : filteredLines.length ? (
-                <div className="line-list">{filteredLines.map((line) => <LineCard key={line.id} line={line} selected={selectedLineId === line.id} onSelect={(item) => setSelectedLineId(selectedLineId === item.id ? null : item.id)} />)}</div>
+                <div className="line-list">{displayedLines.map((line) => <LineCard key={line.id} line={line} selected={selectedLineId === line.id} onSelect={(item) => setSelectedLineId(selectedLineId === item.id ? null : item.id)} />)}</div>
               ) : <p className="empty-state">No encontramos servicios con esos filtros.</p>}
-              {selectedLine && <div className="source-note"><span>Fuente: <a href={selectedLine.sourceUrl} target="_blank" rel="noreferrer">{selectedLine.sourceName}</a></span><button onClick={requestLog}>Registrar viaje en {selectedLine.name}</button></div>}
+              <Pagination currentPage={currentPage} totalPages={totalPages} onChange={changePage} />
+              {selectedLine && <div className="selected-line-action"><span>{selectedLine.city} · {selectedLine.province}</span><button onClick={requestLog}>Reseñar {selectedLine.name}</button></div>}
             </section>
 
             <section className="activity" aria-labelledby="activity-title">
-              <header className="section-heading"><div><p className="index">02</p><h2 id="activity-title">Actividad reciente</h2></div>{selectedLine && <button className="clear-filter" onClick={() => setSelectedLineId(null)}>Ver todas</button>}</header>
-              {visibleTrips.length ? <div className="trip-list">{visibleTrips.map((trip) => <TripEntry trip={trip} key={trip.id} />)}</div> : <div className="empty-state prominent"><p>{selectedLine ? `Todavía nadie registró la ${selectedLine.name}.` : 'El archivo todavía está vacío.'}</p><button className="primary-action" onClick={requestLog}>Registrar el primer viaje</button></div>}
+              <header className="section-heading"><div><h2 id="activity-title">Actividad reciente</h2></div>{selectedLine && <button className="clear-filter" onClick={() => setSelectedLineId(null)}>Ver todas</button>}</header>
+              {visibleTrips.length ? <div className="trip-list">{visibleTrips.map((trip) => <TripEntry trip={trip} key={trip.id} />)}</div> : <div className="empty-state prominent"><p>{selectedLine ? `Todavía nadie reseñó la ${selectedLine.name}.` : 'Todavía no hay reseñas.'}</p><button className="primary-action" onClick={requestLog}>Reseñar el primer viaje</button></div>}
             </section>
           </>
         ) : (
           <section className="diary" aria-labelledby="diary-title">
-            <header className="section-heading diary-heading"><div><p className="index">Archivo personal</p><h1 id="diary-title">Diario de @{user?.username}</h1></div><button className="primary-action" onClick={requestLog}>Registrar viaje</button></header>
+            <header className="section-heading diary-heading"><div><p className="index">Archivo personal</p><h1 id="diary-title">Diario de @{user?.username}</h1></div><button className="primary-action" onClick={requestLog}>Reseñar un viaje</button></header>
             {profile?.trips.length ? <div className="trip-list">{profile.trips.map((trip) => <TripEntry trip={trip} key={trip.id} />)}</div> : <p className="empty-state prominent">Todavía no registraste viajes.</p>}
           </section>
         )}
       </main>
-      <footer className="site-footer"><span>Letterbondi · beta pública</span><a href="/api/openapi.json">API</a><span>Los datos pueden cambiar. Cada ficha indica su fuente.</span></footer>
+      <footer className="site-footer">Letterbondi: porque cada viaje en colectivo merece su propia reseña.</footer>
 
-      {authOpen && <AuthDialog intent={pendingTrip ? 'save-trip' : 'default'} onClose={() => { setAuthOpen(false); setPendingTrip(null); }} onAuthenticated={(nextUser) => void authenticated(nextUser)} />}
-      {logOpen && <LogTripDialog lines={lines} initialLineId={selectedLineId ?? undefined} onClose={() => setLogOpen(false)} onSubmit={submitTrip} />}
+      {authOpen && <AuthDialog intent={pendingTrip ? 'save-trip' : 'default'} onClose={() => { setAuthOpen(false); setPendingTrip(null); }} onAuthenticated={(nextUser) => void authenticated(nextUser)} onContinueAnonymous={pendingTrip ? continueAnonymously : undefined} />}
+      {logOpen && <LogTripDialog lines={publicLines} initialLineId={selectedLineId ?? undefined} onClose={() => setLogOpen(false)} onSubmit={submitTrip} />}
     </div>
   );
 }

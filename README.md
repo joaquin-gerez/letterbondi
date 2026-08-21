@@ -2,6 +2,8 @@
 
 Archivo social de viajes en colectivos y trenes argentinos. Cualquiera puede explorar y armar un registro; la cuenta se solicita recién al guardarlo en el diario.
 
+El seed incluye un catálogo auditable de 983 servicios: colectivos de CABA/AMBA y Buenos Aires, sistemas de Rosario y Mendoza, subtes, trolebuses y trenes metropolitanos, regionales, de larga distancia y provinciales de baja frecuencia. Las fuentes, el criterio de color y los límites de cobertura están documentados en [docs/CATALOGO_TRANSPORTE.md](docs/CATALOGO_TRANSPORTE.md).
+
 ## Stack
 
 React 19 + Vite, Express 5, TypeScript y SQLite/libSQL en un único contenedor Docker.
@@ -20,6 +22,14 @@ Para desarrollo sin Docker:
 npm install
 npm run dev
 ```
+
+Para desarrollo con Docker y hot reload —recomendado en Windows/WSL—:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+```
+
+Abrir [http://localhost:5173](http://localhost:5173). Vite sirve el frontend con HMR y redirige `/api` al servidor del mismo contenedor en el puerto 3000. El Compose normal queda reservado para producción y no tiene hot reload.
 
 ## Verificar
 

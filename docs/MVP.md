@@ -18,7 +18,7 @@ El principio de organización es **object-first**: líneas y trenes son los obje
 - Ficha compacta con recorrido, promedio, cantidad de registros y fuente.
 - Exploración y armado del viaje sin registro previo.
 - Alta o ingreso contextual al confirmar, conservando el borrador hasta autenticar.
-- Cuenta con email, contraseña y sesión persistente segura.
+- Cuenta simple con usuario, contraseña y sesión persistente segura.
 - Registro de viaje con fecha, puntuación de 1 a 5 y texto opcional.
 - Actividad pública y diario de la sesión actual; la API ya expone perfiles por usuario.
 - API JSON documentada con OpenAPI.

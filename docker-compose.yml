@@ -5,6 +5,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
+      COOKIE_SECURE: "false"
       PORT: 3000
       DATABASE_URL: file:/app/data/letterbondi.db
     volumes:

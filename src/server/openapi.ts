@@ -8,7 +8,12 @@ export const openApiDocument = {
     '/lines/{idOrSlug}': { get: { summary: 'Detalle de un servicio', parameters: [{ name: 'idOrSlug', in: 'path', required: true, schema: { type: 'string' } }], responses: { '200': { description: 'Servicio encontrado' }, '404': { description: 'No encontrado' } } } },
     '/trips': {
       get: { summary: 'Actividad reciente', responses: { '200': { description: 'Viajes recientes' } } },
-      post: { summary: 'Registrar un viaje', security: [{ cookieAuth: [] }], responses: { '201': { description: 'Viaje registrado' }, '401': { description: 'Sesión requerida' } } },
+      post: {
+        summary: 'Registrar un viaje con cuenta o identidad anónima',
+        description: 'Sin sesión se asigna una identidad persistente Anon en una cookie HttpOnly.',
+        security: [{ cookieAuth: [] }, {}],
+        responses: { '201': { description: 'Viaje registrado' }, '429': { description: 'Límite de publicaciones anónimas alcanzado' } },
+      },
     },
     '/auth/register': { post: { summary: 'Crear una cuenta', responses: { '201': { description: 'Cuenta creada' } } } },
     '/auth/login': { post: { summary: 'Iniciar sesión', responses: { '200': { description: 'Sesión iniciada' } } } },

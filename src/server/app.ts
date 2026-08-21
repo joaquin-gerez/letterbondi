@@ -3,20 +3,30 @@ import helmet from 'helmet';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { Database } from './db/index.js';
-import { addTrip, createUser, findUserByEmail, getDatabase, getLine, getProfile, getStats, listLines, listTrips } from './db/index.js';
-import { createSession, currentUser, destroySession, hashPassword, verifyPassword } from './auth.js';
+import { addTrip, countRecentAnonymousTrips, createUser, findUserByUsername, getDatabase, getLine, getProfile, getStats, listLines, listTrips } from './db/index.js';
+import { createSession, currentUser, destroySession, getOrCreateAnonymousIdentity, hashPassword, verifyPassword } from './auth.js';
 import { loginSchema, registerSchema, tripSchema, validationMessage } from './validation.js';
 import { openApiDocument } from './openapi.js';
+import type { TripLog } from '../shared/types.js';
 
-interface AppOptions { secureCookies?: boolean }
+interface AppOptions {
+  secureCookies?: boolean;
+  onTripCreated?: (trip: TripLog) => void;
+}
 
 export function createApp(customDb?: Database, options: AppOptions = {}): Express {
   const app = express();
   const db = customDb ?? getDatabase();
-  const secureCookies = options.secureCookies ?? process.env.NODE_ENV === 'production';
+  const secureCookies = options.secureCookies ?? process.env.COOKIE_SECURE === 'true';
 
   app.disable('x-powered-by');
-  app.use(helmet({ contentSecurityPolicy: { directives: { 'img-src': ["'self'", 'data:'] } } }));
+  app.use(helmet({
+    contentSecurityPolicy: { directives: {
+      'img-src': ["'self'", 'data:'],
+      'upgrade-insecure-requests': secureCookies ? [] : null,
+    } },
+    strictTransportSecurity: secureCookies ? undefined : false,
+  }));
   app.use(express.json({ limit: '32kb' }));
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers['sec-fetch-site'] === 'cross-site') {
@@ -57,11 +67,25 @@ export function createApp(customDb?: Database, options: AppOptions = {}): Expres
   app.post('/api/trips', async (req, res, next) => {
     try {
       const user = await currentUser(db, req);
-      if (!user) { res.status(401).json({ error: 'Iniciá sesión para registrar un viaje' }); return; }
       const parsed = tripSchema.safeParse(req.body);
       if (!parsed.success) { res.status(400).json({ error: validationMessage(parsed.error) }); return; }
       if (!await getLine(db, parsed.data.lineId)) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
-      res.status(201).json(await addTrip(db, user.id, parsed.data));
+      if (user) {
+        const trip = await addTrip(db, { userId: user.id }, parsed.data);
+        options.onTripCreated?.(trip);
+        res.status(201).json(trip);
+        return;
+      }
+
+      const anonymous = await getOrCreateAnonymousIdentity(db, req, res, secureCookies);
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+      if (await countRecentAnonymousTrips(db, anonymous.id, tenMinutesAgo) >= 3) {
+        res.status(429).json({ error: 'Esperá unos minutos antes de publicar otra reseña anónima' });
+        return;
+      }
+      const trip = await addTrip(db, { anonymousIdentityId: anonymous.id }, parsed.data);
+      options.onTripCreated?.(trip);
+      res.status(201).json(trip);
     } catch (error) { next(error); }
   });
 
@@ -69,11 +93,11 @@ export function createApp(customDb?: Database, options: AppOptions = {}): Expres
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) { res.status(400).json({ error: validationMessage(parsed.error) }); return; }
-      const user = await createUser(db, { ...parsed.data, username: parsed.data.username.toLowerCase(), passwordHash: await hashPassword(parsed.data.password) });
+      const user = await createUser(db, { username: parsed.data.username, passwordHash: await hashPassword(parsed.data.password) });
       await createSession(db, res, user.id, secureCookies);
       res.status(201).json({ user });
     } catch (error) {
-      if (String(error).includes('UNIQUE')) { res.status(409).json({ error: 'El usuario o email ya está registrado' }); return; }
+      if (String(error).includes('UNIQUE')) { res.status(409).json({ error: 'Ese usuario ya está registrado' }); return; }
       next(error);
     }
   });
@@ -82,9 +106,9 @@ export function createApp(customDb?: Database, options: AppOptions = {}): Expres
     try {
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) { res.status(400).json({ error: validationMessage(parsed.error) }); return; }
-      const user = await findUserByEmail(db, parsed.data.email);
+      const user = await findUserByUsername(db, parsed.data.username);
       if (!user || !await verifyPassword(parsed.data.password, user.passwordHash)) {
-        res.status(401).json({ error: 'Email o contraseña incorrectos' }); return;
+        res.status(401).json({ error: 'Usuario o contraseña incorrectos' }); return;
       }
       await createSession(db, res, user.id, secureCookies);
       const { passwordHash: _passwordHash, ...publicUser } = user;
