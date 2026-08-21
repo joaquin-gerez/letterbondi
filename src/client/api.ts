@@ -1,4 +1,4 @@
-import type { AuthInput, CreateTripInput, PlatformStats, ProfileResponse, SessionUser, TransportLine, TripLog } from '../shared/types';
+import type { AuthInput, CreateTripInput, MemberSummary, PlatformStats, ProfileResponse, SessionUser, TransportLine, TripLog } from '../shared/types';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
@@ -28,7 +28,10 @@ export const api = {
   trips: (lineId?: string) => request<TripLog[]>(`/api/trips${lineId ? `?lineId=${encodeURIComponent(lineId)}` : ''}`),
   stats: () => request<PlatformStats>('/api/stats'),
   me: () => request<{ user: SessionUser | null }>('/api/auth/me'),
+  members: () => request<MemberSummary[]>('/api/members'),
   profile: (username: string) => request<ProfileResponse>(`/api/users/${encodeURIComponent(username)}`),
+  follow: (username: string) => request<{ following: true }>(`/api/users/${encodeURIComponent(username)}/follow`, { method: 'POST' }),
+  unfollow: (username: string) => request<{ following: false }>(`/api/users/${encodeURIComponent(username)}/follow`, { method: 'DELETE' }),
   register: (input: AuthInput) => request<{ user: SessionUser }>('/api/auth/register', { method: 'POST', body: JSON.stringify(input) }),
   login: (input: AuthInput) => request<{ user: SessionUser }>('/api/auth/login', { method: 'POST', body: JSON.stringify(input) }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),

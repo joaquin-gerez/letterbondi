@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-const usernameSchema = z.string().trim().min(3).max(24)
-  .regex(/^[a-zA-Z0-9_]+$/, 'Usá sólo letras, números y guion bajo')
+const usernameSchema = z.string().trim().min(2, 'Usá al menos 2 caracteres').max(24, 'Usá hasta 24 caracteres')
+  .regex(/^[\p{L}\p{N}._-]+$/u, 'Usá letras, números, punto, guion o guion bajo')
   .transform((value) => value.toLowerCase());
 
 export const registerSchema = z.object({
   username: usernameSchema,
-  password: z.string().min(8).max(128),
+  password: z.string().min(4, 'Usá al menos 4 caracteres').max(128),
 });
 
 export const loginSchema = z.object({
@@ -24,5 +24,8 @@ export const tripSchema = z.object({
 });
 
 export function validationMessage(error: z.ZodError): string {
-  return error.issues[0]?.message ?? 'Datos inválidos';
+  const issue = error.issues[0];
+  if (!issue) return 'Datos inválidos';
+  const field = issue.path[0] === 'username' ? 'Usuario' : issue.path[0] === 'password' ? 'Contraseña' : null;
+  return field ? `${field}: ${issue.message}` : issue.message;
 }

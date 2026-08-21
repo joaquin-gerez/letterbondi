@@ -39,7 +39,8 @@ describe('componentes de presentación', () => {
     fireEvent.submit(screen.getByRole('search', { name: 'Buscar transportes' }));
     expect(navigation.onSearchSubmit).toHaveBeenCalledOnce();
     rerender(<Header {...navigation} view="diary" user={{ id: 'user-1', username: 'ana', email: 'ana@example.com' }} onNavigate={onNavigate} onAuth={vi.fn()} onLogout={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '@ana' }));
+    fireEvent.click(screen.getByText('@ana'));
+    fireEvent.click(screen.getByRole('button', { name: 'Mi perfil' }));
     expect(onNavigate).toHaveBeenCalledWith('diary');
     expect(screen.getByRole('button', { name: 'Salir' })).toBeInTheDocument();
   });
@@ -48,7 +49,9 @@ describe('componentes de presentación', () => {
     const onSelect = vi.fn();
     render(<LineCard line={line} selected onSelect={onSelect} />);
     const card = screen.getByRole('button', { pressed: true });
-    expect(card).toHaveTextContent('Constitución — Tigre');
+    expect(screen.getByText('Constitución')).toBeInTheDocument();
+    expect(screen.getByText('Tigre')).toBeInTheDocument();
+    expect(screen.getByLabelText('De Constitución a Tigre')).toBeInTheDocument();
     expect(screen.getByLabelText('Promedio 4.25 de 5')).toBeInTheDocument();
     fireEvent.click(card);
     expect(onSelect).toHaveBeenCalledWith(line);
@@ -134,6 +137,7 @@ describe('diálogos', () => {
     fireEvent.click(screen.getByRole('button', { name: 'No tengo cuenta, registrarme' }));
     fireEvent.change(screen.getByLabelText('Usuario'), { target: { value: 'ana' } });
     fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'contraseña-segura' } });
+    expect(screen.getByLabelText('Contraseña')).toHaveAttribute('minlength', '4');
     fireEvent.click(screen.getByRole('button', { name: 'Crear cuenta' }));
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith(user));
     expect(api.register).toHaveBeenCalledWith({ username: 'ana', password: 'contraseña-segura' });

@@ -20,7 +20,7 @@ export function TripEntry({ trip }: { trip: TripLog }) {
         <header className="trip-meta">
           <div className="activity-summary">
             {registered ? <strong>@{trip.user.username}</strong> : <span className="sr-only">Anon </span>}
-            <span>{activity} </span><strong className="activity-line">{trip.line.name}</strong>
+            <span className="activity-action">{activity}</span>{' '}<strong className="activity-line">{trip.line.name}</strong>
           </div>
           <small className="trip-location-date">{trip.line.city}, <time dateTime={trip.traveledAt}>{formatDate(trip.traveledAt)}</time></small>
         </header>

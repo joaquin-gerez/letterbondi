@@ -78,4 +78,28 @@ describe('Letterbondi API', () => {
     expect((await agent.post('/api/auth/login').send({ username: 'PASAJERO', password: 'contraseña-segura' })).status).toBe(200);
     expect((await agent.get('/api/auth/me')).body.user).toMatchObject({ username: 'pasajero', email: null });
   });
+
+  it('lista perfiles y permite seguirlos sin duplicar relaciones', async () => {
+    const otherAgent = request.agent(createApp(db, { secureCookies: false }));
+    expect((await otherAgent.post('/api/auth/register').send({ username: 'marta', password: '1234' })).status).toBe(201);
+
+    const members = await agent.get('/api/members');
+    expect(members.status).toBe(200);
+    expect(members.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ username: 'pasajero', reviewCount: 1 }),
+      expect.objectContaining({ username: 'marta', reviewCount: 0, followerCount: 0 }),
+    ]));
+
+    expect((await agent.post('/api/users/marta/follow')).body).toEqual({ following: true });
+    expect((await agent.post('/api/users/marta/follow')).body).toEqual({ following: true });
+    const followedProfile = await agent.get('/api/users/marta');
+    expect(followedProfile.body).toMatchObject({ followerCount: 1, isFollowing: true });
+    expect((await agent.post('/api/users/pasajero/follow')).status).toBe(400);
+
+    const anonymousAgent = request.agent(createApp(db, { secureCookies: false }));
+    expect((await anonymousAgent.post('/api/users/marta/follow')).status).toBe(401);
+
+    expect((await agent.delete('/api/users/marta/follow')).body).toEqual({ following: false });
+    expect((await agent.get('/api/users/marta')).body).toMatchObject({ followerCount: 0, isFollowing: false });
+  });
 });

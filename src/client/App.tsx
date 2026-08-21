@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CreateTripInput, PlatformStats, ProfileResponse, SessionUser, TransportLine, TransportMode, TripLog } from '../shared/types';
+import type { CreateTripInput, MemberSummary, PlatformStats, ProfileResponse, SessionUser, TransportLine, TransportMode, TripLog } from '../shared/types';
 import { api } from './api';
 import { AuthDialog } from './components/AuthDialog';
 import { Header } from './components/Header';
 import { HomeHero } from './components/HomeHero';
 import { LineCard } from './components/LineCard';
 import { LogTripDialog } from './components/LogTripDialog';
+import { MembersView } from './components/MembersView';
 import { Pagination } from './components/Pagination';
 import { TripEntry } from './components/TripEntry';
 import { subscribeToTrips } from './realtime';
@@ -14,10 +15,22 @@ const MODES: Array<{ value: '' | TransportMode; label: string }> = [
   { value: '', label: 'Todos' }, { value: 'colectivo', label: 'Colectivos' },
   { value: 'tren', label: 'Trenes' }, { value: 'subte', label: 'Subtes' },
 ];
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 15;
 
 function prependTrip(current: TripLog[], trip: TripLog) {
   return current.some((item) => item.id === trip.id) ? current : [trip, ...current].slice(0, 100);
+}
+
+function profileFromPath() {
+  const match = window.location.pathname.match(/^\/profile\/([^/]+)\/?$/);
+  if (!match?.[1]) return null;
+  try { return decodeURIComponent(match[1]); }
+  catch { return null; }
+}
+
+function viewFromPath(): 'explore' | 'diary' | 'members' {
+  if (window.location.pathname === '/members') return 'members';
+  return profileFromPath() ? 'diary' : 'explore';
 }
 
 export default function App() {
@@ -26,7 +39,10 @@ export default function App() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
-  const [view, setView] = useState<'explore' | 'diary'>('explore');
+  const [members, setMembers] = useState<MemberSummary[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [profileUsername, setProfileUsername] = useState<string | null>(() => profileFromPath());
+  const [view, setView] = useState<'explore' | 'diary' | 'members'>(() => viewFromPath());
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<'' | TransportMode>('');
   const [province, setProvince] = useState('');
@@ -37,6 +53,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
   const [page, setPage] = useState(1);
 
   const load = useCallback(async () => {
@@ -54,13 +71,30 @@ export default function App() {
   useEffect(() => subscribeToTrips((trip) => setTrips((current) => prependTrip(current, trip))), []);
 
   useEffect(() => {
-    if (view !== 'diary' || !user) return;
-    api.profile(user.username).then(setProfile).catch((reason) => setError(reason instanceof Error ? reason.message : 'No pudimos cargar tu diario'));
-  }, [view, user]);
+    if (view !== 'diary' || !profileUsername) return;
+    setProfile(null);
+    api.profile(profileUsername).then(setProfile).catch((reason) => setError(reason instanceof Error ? reason.message : 'No pudimos cargar el perfil'));
+  }, [profileUsername, user?.id, view]);
+
+  useEffect(() => {
+    if (view !== 'members') return;
+    setMembersLoading(true);
+    api.members().then(setMembers).catch((reason) => setError(reason instanceof Error ? reason.message : 'No pudimos cargar los miembros')).finally(() => setMembersLoading(false));
+  }, [view]);
+
+  useEffect(() => {
+    function syncPath() {
+      const username = profileFromPath();
+      setProfileUsername(username);
+      setView(viewFromPath());
+    }
+    window.addEventListener('popstate', syncPath);
+    return () => window.removeEventListener('popstate', syncPath);
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(null), 3500);
+    const timer = window.setTimeout(() => setNotice(null), 2300);
     return () => window.clearTimeout(timer);
   }, [notice]);
 
@@ -79,6 +113,7 @@ export default function App() {
   const visibleTrips = selectedLineId ? trips.filter((trip) => trip.line.id === selectedLineId) : trips;
   const selectedLine = publicLines.find((line) => line.id === selectedLineId) ?? null;
   const hasCatalogFilters = Boolean(query || mode || province || selectedLineId);
+  const viewingOwnProfile = Boolean(user && profileUsername === user.username);
 
   function requestLog() {
     setLogOpen(true);
@@ -93,7 +128,7 @@ export default function App() {
 
   function searchFromHeader(value: string) {
     setQuery(value); setSelectedLineId(null); setPage(1);
-    if (view !== 'explore') setView('explore');
+    if (view !== 'explore') navigate('explore');
     showCatalog();
   }
 
@@ -115,19 +150,69 @@ export default function App() {
     showCatalog();
   }
 
+  function selectLine(line: TransportLine) {
+    const nextLineId = selectedLineId === line.id ? null : line.id;
+    setSelectedLineId(nextLineId);
+    if (!nextLineId) return;
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById('activity-title');
+      if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
   function browse(nextMode: 'colectivo' | 'tren' | 'subte') {
-    setView('explore'); changeMode(nextMode);
+    navigate('explore'); changeMode(nextMode);
     showCatalog();
   }
 
   function showMembers() {
-    setView('explore');
-    window.requestAnimationFrame(() => document.getElementById('activity-title')?.scrollIntoView({ behavior: 'smooth' }));
+    setProfileUsername(null);
+    setView('members');
+    if (window.location.pathname !== '/members') window.history.pushState({}, '', '/members');
   }
 
   async function logout() {
-    try { await api.logout(); setUser(null); setProfile(null); setView('explore'); }
+    try { await api.logout(); setUser(null); setProfile(null); navigate('explore'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'No pudimos cerrar la sesión'); }
+  }
+
+  function navigate(nextView: 'explore' | 'diary') {
+    if (nextView === 'diary') {
+      if (!user) return;
+      setProfileUsername(user.username);
+      setView('diary');
+      const path = `/profile/${encodeURIComponent(user.username)}`;
+      if (window.location.pathname !== path) window.history.pushState({}, '', path);
+      return;
+    }
+    setProfileUsername(null);
+    setView('explore');
+    if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+  }
+
+  function openProfile(username: string) {
+    setProfileUsername(username);
+    setView('diary');
+    const path = `/profile/${encodeURIComponent(username)}`;
+    if (window.location.pathname !== path) window.history.pushState({}, '', path);
+  }
+
+  async function toggleFollow() {
+    if (!user || !profile || viewingOwnProfile) return;
+    const nextFollowing = !profile.isFollowing;
+    setFollowBusy(true);
+    try {
+      if (nextFollowing) await api.follow(profile.user.username);
+      else await api.unfollow(profile.user.username);
+      setProfile((current) => current ? {
+        ...current,
+        isFollowing: nextFollowing,
+        followerCount: Math.max(0, current.followerCount + (nextFollowing ? 1 : -1)),
+      } : current);
+      setNotice(nextFollowing ? `Ahora seguís a @${profile.user.username}.` : `Dejaste de seguir a @${profile.user.username}.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'No pudimos actualizar el seguimiento');
+    } finally { setFollowBusy(false); }
   }
 
   async function tripCreated(trip: TripLog, profileUsername = user?.username) {
@@ -173,7 +258,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Header view={view} user={user} mode={mode} query={query} onNavigate={setView} onAuth={() => setAuthOpen(true)} onLogout={() => void logout()} onBrowse={browse} onMembers={showMembers} onQueryChange={searchFromHeader} onSearchSubmit={showCatalog} />
+      <Header view={view} user={user} mode={mode} query={query} onNavigate={navigate} onAuth={() => setAuthOpen(true)} onLogout={() => void logout()} onBrowse={browse} onMembers={showMembers} onQueryChange={searchFromHeader} onSearchSubmit={showCatalog} />
       {notice && <div className="notice" role="status"><img src="/favicon.svg" alt="" />{notice}</div>}
       <main id="main" className={view === 'explore' ? 'home-main' : 'inner-main'}>
         {view === 'explore' ? (
@@ -193,22 +278,33 @@ export default function App() {
                 <label className="province-filter"><span className="sr-only">Provincia</span><select value={province} onChange={(event) => { setProvince(event.target.value); setSelectedLineId(null); setPage(1); }}><option value="">Todas las provincias</option>{provinces.map((item) => <option key={item}>{item}</option>)}</select></label>
                 <button type="button" className="reset-filters" onClick={resetCatalog} disabled={!hasCatalogFilters}>Borrar filtros</button>
               </div>
-              {loading ? <div className="loading-lines" aria-label="Cargando servicios"><i /><i /><i /></div> : filteredLines.length ? (
-                <div className="line-list">{displayedLines.map((line) => <LineCard key={line.id} line={line} selected={selectedLineId === line.id} onSelect={(item) => setSelectedLineId(selectedLineId === item.id ? null : item.id)} />)}</div>
+              {loading ? <div className="loading-lines" aria-label="Cargando servicios">{Array.from({ length: PAGE_SIZE }, (_, index) => <i key={index} />)}</div> : filteredLines.length ? (
+                <div className="line-list">{displayedLines.map((line) => <LineCard key={line.id} line={line} selected={selectedLineId === line.id} onSelect={selectLine} />)}</div>
               ) : <p className="empty-state">No encontramos servicios con esos filtros.</p>}
               <Pagination currentPage={currentPage} totalPages={totalPages} onChange={changePage} />
               {selectedLine && <div className="selected-line-action"><span>{selectedLine.city} · {selectedLine.province}</span><button onClick={requestLog}>Reseñar {selectedLine.name}</button></div>}
             </section>
 
             <section className="activity" aria-labelledby="activity-title">
-              <header className="section-heading"><div><h2 id="activity-title">Actividad reciente</h2></div>{selectedLine && <button className="clear-filter" onClick={() => setSelectedLineId(null)}>Ver todas</button>}</header>
+              <header className="section-heading activity-heading">
+                <div><h2 id="activity-title">Actividad reciente</h2></div>
+                {selectedLine ? <div className="activity-filter-status" role="status"><span>Estás viendo las reseñas de <strong>{selectedLine.name}</strong></span><button className="clear-filter" onClick={() => setSelectedLineId(null)}>Ver todas las reseñas</button></div> : null}
+              </header>
               {visibleTrips.length ? <div className="trip-list">{visibleTrips.map((trip) => <TripEntry trip={trip} key={trip.id} />)}</div> : <div className="empty-state prominent"><p>{selectedLine ? `Todavía nadie reseñó la ${selectedLine.name}.` : 'Todavía no hay reseñas.'}</p><button className="primary-action" onClick={requestLog}>Reseñar el primer viaje</button></div>}
             </section>
           </>
+        ) : view === 'members' ? (
+          <MembersView members={members} loading={membersLoading} onOpenProfile={openProfile} />
         ) : (
           <section className="diary" aria-labelledby="diary-title">
-            <header className="section-heading diary-heading"><div><p className="index">Archivo personal</p><h1 id="diary-title">Diario de @{user?.username}</h1></div><button className="primary-action" onClick={requestLog}>Reseñar un viaje</button></header>
-            {profile?.trips.length ? <div className="trip-list">{profile.trips.map((trip) => <TripEntry trip={trip} key={trip.id} />)}</div> : <p className="empty-state prominent">Todavía no registraste viajes.</p>}
+            <header className="section-heading diary-heading">
+              <div className="profile-heading-copy">
+                <h1 id="diary-title">Diario de @{profile?.user.username ?? profileUsername}</h1>
+                {profile ? <div className="profile-stats"><span><strong>{profile.trips.length}</strong> reseñas</span><span><strong>{profile.followerCount}</strong> seguidores</span><span><strong>{profile.followingCount}</strong> siguiendo</span></div> : null}
+              </div>
+              {viewingOwnProfile ? <button className="primary-action" onClick={requestLog}>Reseñar un viaje</button> : user && profile ? <button className="follow-action" onClick={() => void toggleFollow()} disabled={followBusy}>{profile.isFollowing ? 'Siguiendo' : 'Seguir'}</button> : null}
+            </header>
+            {!profile ? <p className="empty-state">Cargando perfil…</p> : profile.trips.length ? <div className="trip-list">{profile.trips.map((trip) => <TripEntry trip={trip} key={trip.id} />)}</div> : <p className="empty-state prominent">{viewingOwnProfile ? 'Todavía no registraste viajes.' : 'Este perfil todavía no tiene viajes.'}</p>}
           </section>
         )}
       </main>

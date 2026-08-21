@@ -33,4 +33,17 @@ describe('cliente API', () => {
     await expect(api.logout()).resolves.toBeUndefined();
     expect(json).not.toHaveBeenCalled();
   });
+
+  it('consulta miembros y envía las acciones de seguimiento', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response([]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.members();
+    await api.follow('ana/maría');
+    await api.unfollow('ana/maría');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/members', expect.objectContaining({ credentials: 'same-origin' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/users/ana%2Fmar%C3%ADa/follow', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/users/ana%2Fmar%C3%ADa/follow', expect.objectContaining({ method: 'DELETE' }));
+  });
 });

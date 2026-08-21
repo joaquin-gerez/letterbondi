@@ -27,6 +27,14 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS follows (
+  follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  followed_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (follower_id, followed_id),
+  CHECK (follower_id <> followed_id)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -64,6 +72,8 @@ CREATE INDEX IF NOT EXISTS idx_trip_logs_created_at ON trip_logs(created_at DESC
 CREATE INDEX IF NOT EXISTS idx_trip_logs_line_id ON trip_logs(line_id);
 CREATE INDEX IF NOT EXISTS idx_trip_logs_user_id ON trip_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_lines_province ON transport_lines(province);
+CREATE INDEX IF NOT EXISTS idx_follows_followed_id ON follows(followed_id);
+CREATE INDEX IF NOT EXISTS idx_follows_follower_id ON follows(follower_id);
 `;
 
 export const MIGRATE_TRIP_LOGS_TO_ANONYMOUS_AUTHORS = `

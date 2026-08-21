@@ -1,7 +1,7 @@
 import type { SessionUser, TransportMode } from '../../shared/types';
 
 interface HeaderProps {
-  view: 'explore' | 'diary';
+  view: 'explore' | 'diary' | 'members';
   user: SessionUser | null;
   mode: '' | TransportMode;
   query: string;
@@ -27,14 +27,20 @@ export function Header({ view, user, mode, query, onNavigate, onAuth, onLogout, 
           <button className={view === 'explore' && mode === 'colectivo' ? 'is-active' : ''} onClick={() => onBrowse('colectivo')}>Bondis</button>
           <button className={view === 'explore' && mode === 'tren' ? 'is-active' : ''} onClick={() => onBrowse('tren')}>Trenes</button>
           <button className={view === 'explore' && mode === 'subte' ? 'is-active' : ''} onClick={() => onBrowse('subte')}>Subte</button>
-          <button onClick={onMembers}>Miembros</button>
+          <button className={view === 'members' ? 'is-active' : ''} onClick={onMembers}>Miembros</button>
         </nav>
         <form className="header-search" role="search" aria-label="Buscar transportes" onSubmit={(event) => { event.preventDefault(); onSearchSubmit(); }}>
           <label><span className="sr-only">Buscar bondis, trenes o subtes</span><input type="search" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Buscar" /></label>
         </form>
         <div className="account-nav">
           {user ? (
-            <><button onClick={() => onNavigate('diary')}>@{user.username}</button><button onClick={onLogout}>Salir</button></>
+            <details className="account-menu">
+              <summary>@{user.username}</summary>
+              <div className="account-popover">
+                <button type="button" onClick={() => onNavigate('diary')}>Mi perfil</button>
+                <button type="button" onClick={onLogout}>Salir</button>
+              </div>
+            </details>
           ) : (
             <button className="login-action" onClick={onAuth}>Ingresar</button>
           )}

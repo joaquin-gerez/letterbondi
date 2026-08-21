@@ -45,8 +45,8 @@ export function AuthDialog({ intent = 'default', onClose, onAuthenticated, onCon
         </div>
       )}
       <form className="stack-form" onSubmit={submit}>
-        <label>Usuario<input name="username" autoComplete="username" minLength={3} maxLength={24} required /></label>
-        <label>Contraseña<input name="password" type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} minLength={mode === 'register' ? 8 : 1} required /></label>
+        <label>Usuario<input name="username" autoComplete="username" minLength={2} maxLength={24} required /></label>
+        <label>Contraseña<input name="password" type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} minLength={mode === 'register' ? 4 : 1} required /></label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <button className="primary-action full" disabled={busy}>{busy ? 'Procesando…' : mode === 'login' ? 'Ingresar' : 'Crear cuenta'}</button>
       </form>

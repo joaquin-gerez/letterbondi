@@ -1,6 +1,6 @@
 import { createClient, type Client } from '@libsql/client';
 import { randomUUID } from 'node:crypto';
-import type { CreateTripInput, PlatformStats, ProfileResponse, PublicUser, SessionUser, TransportLine, TransportMode, TripLog } from '../../shared/types.js';
+import type { CreateTripInput, MemberSummary, PlatformStats, ProfileResponse, PublicUser, SessionUser, TransportLine, TransportMode, TripLog } from '../../shared/types.js';
 import { INITIAL_LINES } from '../../shared/data/initialLines.js';
 import { CREATE_SCHEMA, MIGRATE_TRIP_LOGS_TO_ANONYMOUS_AUTHORS, MIGRATE_TRIP_LOGS_TO_REVIEW_METADATA, MIGRATE_USERS_TO_OPTIONAL_EMAIL } from './schema.js';
 
@@ -233,6 +233,30 @@ export async function findPublicUser(db: Client, username: string): Promise<Publ
   return row ? { id: String(row.id), username: String(row.username) } : null;
 }
 
+export async function listMembers(db: Client): Promise<MemberSummary[]> {
+  const result = await db.execute(`SELECT u.id, u.username,
+    (SELECT COUNT(*) FROM trip_logs t WHERE t.user_id = u.id) AS review_count,
+    (SELECT COUNT(*) FROM follows f WHERE f.followed_id = u.id) AS follower_count,
+    (SELECT COUNT(*) FROM follows f WHERE f.follower_id = u.id) AS following_count
+    FROM users u
+    ORDER BY review_count DESC, follower_count DESC, u.username COLLATE NOCASE`);
+  return result.rows.map((row) => ({
+    id: String(row.id), username: String(row.username), reviewCount: Number(row.review_count ?? 0),
+    followerCount: Number(row.follower_count ?? 0), followingCount: Number(row.following_count ?? 0),
+  }));
+}
+
+export async function setFollowing(db: Client, followerId: string, followedId: string, following: boolean): Promise<void> {
+  if (following) {
+    await db.execute({
+      sql: 'INSERT INTO follows (follower_id, followed_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+      args: [followerId, followedId, new Date().toISOString()],
+    });
+    return;
+  }
+  await db.execute({ sql: 'DELETE FROM follows WHERE follower_id = ? AND followed_id = ?', args: [followerId, followedId] });
+}
+
 export async function saveSession(db: Client, tokenHash: string, userId: string, expiresAt: string): Promise<void> {
   await db.execute({ sql: 'INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)', args: [tokenHash, userId, expiresAt, new Date().toISOString()] });
 }
@@ -250,10 +274,24 @@ export async function deleteSession(db: Client, tokenHash: string): Promise<void
   await db.execute({ sql: 'DELETE FROM sessions WHERE token_hash = ?', args: [tokenHash] });
 }
 
-export async function getProfile(db: Client, username: string): Promise<ProfileResponse | null> {
+export async function getProfile(db: Client, username: string, viewerId?: string): Promise<ProfileResponse | null> {
   const user = await findPublicUser(db, username);
   if (!user) return null;
-  return { user, trips: await listTrips(db, { userId: user.id, limit: 100 }) };
+  const [trips, counts] = await Promise.all([
+    listTrips(db, { userId: user.id, limit: 100 }),
+    db.execute({
+      sql: `SELECT
+        (SELECT COUNT(*) FROM follows WHERE followed_id = ?) AS follower_count,
+        (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS following_count,
+        (SELECT COUNT(*) FROM follows WHERE follower_id = ? AND followed_id = ?) AS is_following`,
+      args: [user.id, user.id, viewerId ?? '', user.id],
+    }),
+  ]);
+  const row = counts.rows[0];
+  return {
+    user, trips, followerCount: Number(row?.follower_count ?? 0), followingCount: Number(row?.following_count ?? 0),
+    isFollowing: Number(row?.is_following ?? 0) > 0,
+  };
 }
 
 export async function getStats(db: Client): Promise<PlatformStats> {

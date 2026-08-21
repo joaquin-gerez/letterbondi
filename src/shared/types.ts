@@ -25,6 +25,12 @@ export interface PublicUser {
   username: string;
 }
 
+export interface MemberSummary extends PublicUser {
+  reviewCount: number;
+  followerCount: number;
+  followingCount: number;
+}
+
 export interface SessionUser extends PublicUser {
   email: string | null;
 }
@@ -77,4 +83,7 @@ export interface AuthInput {
 export interface ProfileResponse {
   user: PublicUser;
   trips: TripLog[];
+  followerCount: number;
+  followingCount: number;
+  isFollowing: boolean;
 }

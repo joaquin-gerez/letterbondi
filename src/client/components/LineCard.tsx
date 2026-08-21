@@ -37,7 +37,8 @@ export function lineCardColors(line: TransportLine) {
 }
 
 export function LineCard({ line, selected, onSelect }: LineCardProps) {
-  const route = [line.origin, line.destination].filter(Boolean).join(' — ') || `${line.city}, ${line.province}`;
+  const routePoints = [line.origin, line.destination].filter((point): point is string => Boolean(point?.trim()));
+  const routeLabel = routePoints.length ? `De ${routePoints.join(' a ')}` : `${line.city}, ${line.province}`;
   const colors = lineCardColors(line);
   const isLongTrainName = line.mode === 'tren' && line.shortName.length > 13;
 
@@ -52,7 +53,11 @@ export function LineCard({ line, selected, onSelect }: LineCardProps) {
       </span>
       <span className="line-card-copy">
         <strong>{line.name}</strong>
-        <span>{route}</span>
+        <span className="line-card-route" aria-label={routeLabel}>
+          {routePoints.length
+            ? routePoints.map((point, index) => <span className={index === 0 ? 'is-origin' : 'is-destination'} title={point} key={`${point}-${index}`}>{point}</span>)
+            : <span className="is-location" title={routeLabel}>{routeLabel}</span>}
+        </span>
         <small>{line.city} · {line.mode}</small>
       </span>
       <span className="line-card-score" aria-label={line.averageRating ? `Promedio ${line.averageRating} de 5` : 'Sin calificaciones'}>

@@ -19,7 +19,12 @@ export const openApiDocument = {
     '/auth/login': { post: { summary: 'Iniciar sesión', responses: { '200': { description: 'Sesión iniciada' } } } },
     '/auth/logout': { post: { summary: 'Cerrar sesión', responses: { '204': { description: 'Sesión cerrada' } } } },
     '/auth/me': { get: { summary: 'Sesión actual', responses: { '200': { description: 'Usuario o null' } } } },
+    '/members': { get: { summary: 'Listado público de miembros', responses: { '200': { description: 'Miembros ordenados por actividad' } } } },
     '/users/{username}': { get: { summary: 'Perfil y diario públicos', responses: { '200': { description: 'Perfil' }, '404': { description: 'No encontrado' } } } },
+    '/users/{username}/follow': {
+      post: { summary: 'Seguir a un miembro', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Siguiendo' }, '401': { description: 'Sin sesión' } } },
+      delete: { summary: 'Dejar de seguir a un miembro', security: [{ cookieAuth: [] }], responses: { '200': { description: 'Ya no se sigue' }, '401': { description: 'Sin sesión' } } },
+    },
     '/stats': { get: { summary: 'Totales de la plataforma', responses: { '200': { description: 'Totales' } } } },
   },
   components: { securitySchemes: { cookieAuth: { type: 'apiKey', in: 'cookie', name: 'letterbondi_session' } } },

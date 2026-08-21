@@ -19,7 +19,14 @@ function response(body: unknown, status = 200) {
   return Promise.resolve({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) } as Response);
 }
 
-beforeEach(() => vi.stubGlobal('WebSocket', undefined));
+const scrollIntoView = vi.fn();
+
+beforeEach(() => {
+  vi.stubGlobal('WebSocket', undefined);
+  window.history.replaceState({}, '', '/');
+  HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  scrollIntoView.mockReset();
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe('App', () => {
@@ -40,6 +47,12 @@ describe('App', () => {
     expect(screen.getByText('Todavía no hay reseñas.')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Línea 60').closest('button')!);
     expect(screen.getByRole('button', { name: 'Reseñar Línea 60' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Estás viendo las reseñas de Línea 60');
+    expect(screen.getByRole('button', { name: 'Ver todas las reseñas' })).toBeInTheDocument();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ver todas las reseñas' }));
+    expect(screen.queryByText('Estás viendo las reseñas de Línea 60')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Línea 60').closest('button')!);
     fireEvent.click(within(screen.getByRole('group', { name: 'Filtrar por modo' })).getByRole('button', { name: 'Trenes' }));
     expect(screen.queryByRole('button', { name: 'Reseñar Línea 60' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('Buscar línea, ciudad u operador'), { target: { value: 'inexistente' } });
@@ -49,8 +62,8 @@ describe('App', () => {
     expect(screen.getByText('Línea 60')).toBeInTheDocument();
   });
 
-  it('pagina el catálogo de a 20 sin acumular resultados', async () => {
-    const manyLines = Array.from({ length: 21 }, (_, index) => ({
+  it('pagina el catálogo de a 15 sin acumular resultados', async () => {
+    const manyLines = Array.from({ length: 16 }, (_, index) => ({
       ...line,
       id: `line-${index + 1}`,
       slug: `linea-${index + 1}`,
@@ -61,16 +74,16 @@ describe('App', () => {
       const url = String(input);
       if (url === '/api/lines') return response(manyLines);
       if (url === '/api/trips') return response([]);
-      if (url === '/api/stats') return response({ lineCount: 21, logCount: 0, userCount: 0, provinceCount: 1 });
+      if (url === '/api/stats') return response({ lineCount: 16, logCount: 0, userCount: 0, provinceCount: 1 });
       if (url === '/api/auth/me') return response({ user: null });
       return response({ error: 'Ruta no encontrada' }, 404);
     }));
 
     render(<App />);
-    expect(await screen.findByText('Línea 20')).toBeInTheDocument();
-    expect(screen.queryByText('Línea 21')).not.toBeInTheDocument();
+    expect(await screen.findByText('Línea 15')).toBeInTheDocument();
+    expect(screen.queryByText('Línea 16')).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Páginas del catálogo' })).getByRole('button', { name: 'Página 2' }));
-    expect(screen.getByText('Línea 21')).toBeInTheDocument();
+    expect(screen.getByText('Línea 16')).toBeInTheDocument();
     expect(screen.queryByText('Línea 1')).not.toBeInTheDocument();
   });
 
@@ -79,6 +92,53 @@ describe('App', () => {
     render(<App />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No pudimos conectar con la API');
     await waitFor(() => expect(screen.queryByText('Línea 60')).not.toBeInTheDocument());
+  });
+
+  it('navega al perfil con una URL real y sin el rótulo de archivo personal', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/lines') return response([line]);
+      if (url === '/api/trips') return response([]);
+      if (url === '/api/stats') return response({ lineCount: 1, logCount: 0, userCount: 1, provinceCount: 1 });
+      if (url === '/api/auth/me') return response({ user: { id: 'user-1', username: 'joako', email: null } });
+      if (url === '/api/users/joako') return response({ user: { id: 'user-1', username: 'joako' }, trips: [], followerCount: 2, followingCount: 1, isFollowing: false });
+      return response({ error: 'Ruta no encontrada' }, 404);
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByText('@joako'));
+    fireEvent.click(screen.getByRole('button', { name: 'Mi perfil' }));
+    expect(window.location.pathname).toBe('/profile/joako');
+    expect(await screen.findByRole('heading', { name: 'Diario de @joako' })).toBeInTheDocument();
+    expect(screen.getByText('2').closest('span')).toHaveTextContent('2 seguidores');
+    expect(screen.queryByText('Archivo personal')).not.toBeInTheDocument();
+  });
+
+  it('lista miembros, abre un perfil público y permite seguirlo', async () => {
+    const member = { id: 'user-2', username: 'marta', reviewCount: 3, followerCount: 1, followingCount: 0 };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/lines') return response([line]);
+      if (url === '/api/trips') return response([]);
+      if (url === '/api/stats') return response({ lineCount: 1, logCount: 3, userCount: 2, provinceCount: 1 });
+      if (url === '/api/auth/me') return response({ user: { id: 'user-1', username: 'joako', email: null } });
+      if (url === '/api/members') return response([member]);
+      if (url === '/api/users/marta' && init?.method === 'POST') return response({ following: true });
+      if (url === '/api/users/marta') return response({ user: { id: member.id, username: member.username }, trips: [], followerCount: 1, followingCount: 0, isFollowing: false });
+      if (url === '/api/users/marta/follow' && init?.method === 'POST') return response({ following: true });
+      return response({ error: 'Ruta no encontrada' }, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Miembros' }));
+    expect(window.location.pathname).toBe('/members');
+    fireEvent.click(await screen.findByRole('button', { name: /@marta/ }));
+    expect(window.location.pathname).toBe('/profile/marta');
+    expect(await screen.findByRole('heading', { name: 'Diario de @marta' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Seguir' }));
+    expect(await screen.findByRole('button', { name: 'Siguiendo' })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/users/marta/follow', expect.objectContaining({ method: 'POST' }));
   });
 
   it('deja armar el viaje anónimamente y pide cuenta sólo al intentar guardarlo', async () => {
@@ -96,7 +156,7 @@ describe('App', () => {
       if (url === '/api/stats') return response({ lineCount: 1, logCount: saved ? 1 : 0, userCount: saved ? 1 : 0, provinceCount: 1 });
       if (url === '/api/auth/me') return response({ user: null });
       if (url === '/api/auth/register') return response({ user: { id: 'user-1', username: 'anonimo', email: null } }, 201);
-      if (url === '/api/users/anonimo') return response({ user: trip.user, trips: [trip] });
+      if (url === '/api/users/anonimo') return response({ user: trip.user, trips: [trip], followerCount: 0, followingCount: 0, isFollowing: false });
       return response({ error: 'Ruta no encontrada' }, 404);
     });
     vi.stubGlobal('fetch', fetchMock);

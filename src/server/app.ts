@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { Database } from './db/index.js';
-import { addTrip, countRecentAnonymousTrips, createUser, findUserByUsername, getDatabase, getLine, getProfile, getStats, listLines, listTrips } from './db/index.js';
+import { addTrip, countRecentAnonymousTrips, createUser, findPublicUser, findUserByUsername, getDatabase, getLine, getProfile, getStats, listLines, listMembers, listTrips, setFollowing } from './db/index.js';
 import { createSession, currentUser, destroySession, getOrCreateAnonymousIdentity, hashPassword, verifyPassword } from './auth.js';
 import { loginSchema, registerSchema, tripSchema, validationMessage } from './validation.js';
 import { openApiDocument } from './openapi.js';
@@ -126,11 +126,40 @@ export function createApp(customDb?: Database, options: AppOptions = {}): Expres
     catch (error) { next(error); }
   });
 
+  app.get('/api/members', async (_req, res, next) => {
+    try { res.json(await listMembers(db)); }
+    catch (error) { next(error); }
+  });
+
   app.get('/api/users/:username', async (req, res, next) => {
     try {
-      const profile = await getProfile(db, String(req.params.username));
+      const viewer = await currentUser(db, req);
+      const profile = await getProfile(db, String(req.params.username), viewer?.id);
       if (!profile) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
       res.json(profile);
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/users/:username/follow', async (req, res, next) => {
+    try {
+      const viewer = await currentUser(db, req);
+      if (!viewer) { res.status(401).json({ error: 'Ingresá para seguir miembros' }); return; }
+      const target = await findPublicUser(db, String(req.params.username));
+      if (!target) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+      if (target.id === viewer.id) { res.status(400).json({ error: 'No podés seguirte a vos mismo' }); return; }
+      await setFollowing(db, viewer.id, target.id, true);
+      res.json({ following: true });
+    } catch (error) { next(error); }
+  });
+
+  app.delete('/api/users/:username/follow', async (req, res, next) => {
+    try {
+      const viewer = await currentUser(db, req);
+      if (!viewer) { res.status(401).json({ error: 'Ingresá para dejar de seguir miembros' }); return; }
+      const target = await findPublicUser(db, String(req.params.username));
+      if (!target) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+      await setFollowing(db, viewer.id, target.id, false);
+      res.json({ following: false });
     } catch (error) { next(error); }
   });
 
