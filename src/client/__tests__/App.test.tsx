@@ -47,13 +47,15 @@ describe('App', () => {
     expect(screen.getByText('Todavía no hay reseñas.')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Línea 60').closest('button')!);
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(`/api/trips?lineId=${line.id}`, expect.anything()));
-    expect(screen.getByRole('button', { name: 'Reseñar Línea 60' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Línea 60' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Datos Argentina' })).toHaveAttribute('href', line.sourceUrl);
     expect(screen.getByRole('status')).toHaveTextContent('Estás viendo las reseñas de Línea 60');
     expect(screen.getByRole('button', { name: 'Ver todas las reseñas' })).toBeInTheDocument();
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reseñar Línea 60' }));
+    expect(screen.getByRole('dialog', { name: 'Reseñar Línea 60' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ver todas las reseñas' }));
     expect(screen.queryByText('Estás viendo las reseñas de Línea 60')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText('Línea 60').closest('button')!);
     fireEvent.click(within(screen.getByRole('group', { name: 'Filtrar por modo' })).getByRole('button', { name: 'Trenes' }));
     expect(screen.queryByRole('button', { name: 'Reseñar Línea 60' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('Buscar línea, ciudad u operador'), { target: { value: 'inexistente' } });
@@ -88,11 +90,54 @@ describe('App', () => {
     expect(screen.queryByText('Línea 1')).not.toBeInTheDocument();
   });
 
+  it('ordena el catálogo por actividad, puntuación o nombre', async () => {
+    const popular = { ...line, id: 'line-20', slug: 'linea-20', name: 'Línea 20', shortName: '20', averageRating: 2, logCount: 10 };
+    const rated = { ...line, id: 'line-10', slug: 'linea-10', name: 'Línea 10', shortName: '10', averageRating: 5, logCount: 1 };
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/lines') return response([rated, popular]);
+      if (url === '/api/trips') return response([]);
+      if (url === '/api/stats') return response({ lineCount: 2, logCount: 11, userCount: 0, provinceCount: 1 });
+      if (url === '/api/auth/me') return response({ user: null, anonymousId: null });
+      return response({ error: 'Ruta no encontrada' }, 404);
+    }));
+    render(<App />);
+    const firstCard = () => within(document.querySelector('.line-list')!).getAllByRole('button')[0];
+    await screen.findByText('Línea 20');
+    expect(firstCard()).toHaveTextContent('Línea 20');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Ordenar servicios' }), { target: { value: 'rating' } });
+    expect(firstCard()).toHaveTextContent('Línea 10');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Ordenar servicios' }), { target: { value: 'name' } });
+    expect(firstCard()).toHaveTextContent('Línea 10');
+  });
+
   it('muestra un error verificable si el backend no responde', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('sin conexión'))));
     render(<App />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No pudimos conectar con la API');
     await waitFor(() => expect(screen.queryByText('Línea 60')).not.toBeInTheDocument());
+  });
+
+  it('muestra una página 404 para rutas desconocidas', () => {
+    window.history.replaceState({}, '', '/recorrido-inventado');
+    vi.stubGlobal('fetch', vi.fn(() => response({ error: 'Ruta no encontrada' }, 404)));
+    render(<App />);
+    expect(screen.getByRole('heading', { name: 'Este recorrido no existe.' })).toBeInTheDocument();
+  });
+
+  it('muestra una página 404 para perfiles inexistentes', async () => {
+    window.history.replaceState({}, '', '/profile/no-existe');
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/lines') return response([line]);
+      if (url === '/api/trips') return response([]);
+      if (url === '/api/stats') return response({ lineCount: 1, logCount: 0, userCount: 0, provinceCount: 1 });
+      if (url === '/api/auth/me') return response({ user: null, anonymousId: null });
+      if (url === '/api/users/no-existe') return response({ error: 'Usuario no encontrado' }, 404);
+      return response({ error: 'Ruta no encontrada' }, 404);
+    }));
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: 'Este recorrido no existe.' })).toBeInTheDocument();
   });
 
   it('navega al perfil con una URL real y sin el rótulo de archivo personal', async () => {

@@ -256,9 +256,17 @@ export function createApp(customDb?: Database, options: AppOptions = {}): Expres
       index: false, maxAge: '1y', immutable: true,
       setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); },
     }));
-    app.get('*splat', (req, res, next) => {
+    app.get('*splat', async (req, res, next) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') { next(); return; }
-      res.sendFile(path.join(clientDir, 'index.html'));
+      try {
+        let status = req.path === '/' || /^\/members\/?$/.test(req.path) ? 200 : 404;
+        const profile = req.path.match(/^\/profile\/([^/]+)\/?$/);
+        if (profile?.[1]) {
+          const username = decodeURIComponent(profile[1]);
+          status = await findPublicUser(db, username) ? 200 : 404;
+        }
+        res.status(status).sendFile(path.join(clientDir, 'index.html'));
+      } catch (error) { next(error); }
     });
   }
 

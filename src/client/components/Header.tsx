@@ -1,7 +1,7 @@
 import type { SessionUser, TransportMode } from '../../shared/types';
 
 interface HeaderProps {
-  view: 'explore' | 'diary' | 'members';
+  view: 'explore' | 'diary' | 'members' | 'not-found';
   user: SessionUser | null;
   mode: '' | TransportMode;
   query: string;

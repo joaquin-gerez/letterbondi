@@ -30,10 +30,6 @@ Para apagarlo:
 docker compose down
 ```
 
-Los usuarios y viajes quedan guardados en un volumen de Docker, incluso después de apagar la aplicación.
-
-Para publicarlo con HTTPS en un VPS, seguí la guía de [despliegue con Caddy](docs/DEPLOY.md). No expongas directamente el puerto 3000 de la aplicación.
-
 ## Qué hay adentro
 
 - Catálogo buscable por línea, ciudad, provincia, operador y recorrido.

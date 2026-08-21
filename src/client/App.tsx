@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CreateTripInput, MemberSummary, PlatformStats, ProfileResponse, SessionUser, TransportLine, TransportMode, TripLog } from '../shared/types';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { AuthDialog } from './components/AuthDialog';
 import { Header } from './components/Header';
 import { HomeHero } from './components/HomeHero';
 import { LineCard } from './components/LineCard';
+import { LineDetailsDialog } from './components/LineDetailsDialog';
 import { LogTripDialog } from './components/LogTripDialog';
 import { MembersView } from './components/MembersView';
 import { Pagination } from './components/Pagination';
@@ -16,6 +17,7 @@ const MODES: Array<{ value: '' | TransportMode; label: string }> = [
   { value: 'tren', label: 'Trenes' }, { value: 'subte', label: 'Subtes' },
 ];
 const PAGE_SIZE = 15;
+type CatalogSort = 'popular' | 'rating' | 'name';
 
 function prependTrip(current: TripLog[], trip: TripLog) {
   return current.some((item) => item.id === trip.id) ? current : [trip, ...current].slice(0, 100);
@@ -28,9 +30,12 @@ function profileFromPath() {
   catch { return null; }
 }
 
-function viewFromPath(): 'explore' | 'diary' | 'members' {
-  if (window.location.pathname === '/members') return 'members';
-  return profileFromPath() ? 'diary' : 'explore';
+type View = 'explore' | 'diary' | 'members' | 'not-found';
+
+function viewFromPath(): View {
+  if (/^\/$/.test(window.location.pathname)) return 'explore';
+  if (/^\/members\/?$/.test(window.location.pathname)) return 'members';
+  return profileFromPath() ? 'diary' : 'not-found';
 }
 
 export default function App() {
@@ -43,14 +48,18 @@ export default function App() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [anonymousId, setAnonymousId] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileRetry, setProfileRetry] = useState(0);
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [profileUsername, setProfileUsername] = useState<string | null>(() => profileFromPath());
-  const [view, setView] = useState<'explore' | 'diary' | 'members'>(() => viewFromPath());
+  const [view, setView] = useState<View>(() => viewFromPath());
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<'' | TransportMode>('');
   const [province, setProvince] = useState('');
+  const [sort, setSort] = useState<CatalogSort>('popular');
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+  const [detailsLine, setDetailsLine] = useState<TransportLine | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [pendingTrip, setPendingTrip] = useState<CreateTripInput | null>(null);
@@ -96,9 +105,16 @@ export default function App() {
 
   useEffect(() => {
     if (view !== 'diary' || !profileUsername) return;
+    let cancelled = false;
     setProfile(null);
-    api.profile(profileUsername).then(setProfile).catch((reason) => setError(reason instanceof Error ? reason.message : 'No pudimos cargar el perfil'));
-  }, [profileUsername, user?.id, view]);
+    setProfileError(null);
+    api.profile(profileUsername).then((nextProfile) => { if (!cancelled) setProfile(nextProfile); }).catch((reason) => {
+      if (cancelled) return;
+      if (reason instanceof ApiError && reason.status === 404) { setView('not-found'); return; }
+      setProfileError(reason instanceof Error ? reason.message : 'No pudimos cargar el perfil');
+    });
+    return () => { cancelled = true; };
+  }, [profileUsername, profileRetry, user?.id, view]);
 
   useEffect(() => {
     if (view !== 'members') return;
@@ -129,8 +145,12 @@ export default function App() {
     const term = query.trim().toLocaleLowerCase('es');
     return publicLines
       .filter((line) => (!mode || line.mode === mode) && (!province || line.province === province) && (!term || [line.name, line.shortName, line.city, line.province, line.operator ?? '', line.origin ?? '', line.destination ?? ''].some((value) => value.toLocaleLowerCase('es').includes(term))))
-      .sort((left, right) => right.logCount - left.logCount || (right.averageRating ?? 0) - (left.averageRating ?? 0) || left.name.localeCompare(right.name, 'es', { numeric: true }));
-  }, [publicLines, mode, province, query]);
+      .sort((left, right) => sort === 'rating'
+        ? (right.averageRating ?? 0) - (left.averageRating ?? 0) || right.logCount - left.logCount
+        : sort === 'name'
+          ? left.shortName.localeCompare(right.shortName, 'es', { numeric: true })
+          : right.logCount - left.logCount || (right.averageRating ?? 0) - (left.averageRating ?? 0) || left.name.localeCompare(right.name, 'es', { numeric: true }));
+  }, [publicLines, mode, province, query, sort]);
   const totalPages = Math.max(1, Math.ceil(filteredLines.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const displayedLines = filteredLines.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -175,13 +195,8 @@ export default function App() {
   }
 
   function selectLine(line: TransportLine) {
-    const nextLineId = selectedLineId === line.id ? null : line.id;
-    setSelectedLineId(nextLineId);
-    if (!nextLineId) return;
-    window.requestAnimationFrame(() => {
-      const target = document.getElementById('activity-title');
-      if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+    setSelectedLineId(line.id);
+    setDetailsLine(line);
   }
 
   function browse(nextMode: 'colectivo' | 'tren' | 'subte') {
@@ -319,7 +334,7 @@ export default function App() {
             {error && <section className="error-panel" role="alert"><strong>No pudimos cargar la aplicación.</strong><span>{error}</span><button onClick={() => void load()}>Reintentar</button></section>}
 
             <section className="catalog" aria-labelledby="catalog-title">
-              <header className="section-heading"><div><h2 id="catalog-title">Buscá tu transporte público</h2></div><p>Más reseñados primero</p></header>
+              <header className="section-heading"><div><h2 id="catalog-title">Buscá tu transporte público</h2></div><label className="catalog-sort">Ordenar<select aria-label="Ordenar servicios" value={sort} onChange={(event) => { setSort(event.target.value as CatalogSort); setPage(1); }}><option value="popular">Más reseñados</option><option value="rating">Mejor puntuados</option><option value="name">Número o nombre</option></select></label></header>
               <div className="filters">
                 <div className="search-field">
                   <label><span className="sr-only">Buscar servicios</span><input value={query} onChange={(event) => { setQuery(event.target.value); setSelectedLineId(null); setPage(1); }} placeholder="Buscar línea, ciudad u operador" /></label>
@@ -333,7 +348,6 @@ export default function App() {
                 <div className="line-list">{displayedLines.map((line) => <LineCard key={line.id} line={line} selected={selectedLineId === line.id} onSelect={selectLine} />)}</div>
               ) : <p className="empty-state">No encontramos servicios con esos filtros.</p>}
               <Pagination currentPage={currentPage} totalPages={totalPages} onChange={changePage} />
-              {selectedLine && <div className="selected-line-action"><span>{selectedLine.city} · {selectedLine.province}</span><button onClick={requestLog}>Reseñar {selectedLine.name}</button></div>}
             </section>
 
             <section className="activity" aria-labelledby="activity-title">
@@ -346,7 +360,7 @@ export default function App() {
           </>
         ) : view === 'members' ? (
           <MembersView members={members} loading={membersLoading} onOpenProfile={openProfile} />
-        ) : (
+        ) : view === 'diary' ? (
           <section className="diary" aria-labelledby="diary-title">
             <header className="section-heading diary-heading">
               <div className="profile-heading-copy">
@@ -355,13 +369,29 @@ export default function App() {
               </div>
               {viewingOwnProfile ? <div className="profile-actions"><button className="primary-action" onClick={requestLog}>Reseñar un viaje</button><button className="delete-account" onClick={() => void deleteAccount()}>Eliminar cuenta</button></div> : user && profile ? <button className="follow-action" onClick={() => void toggleFollow()} disabled={followBusy}>{profile.isFollowing ? 'Siguiendo' : 'Seguir'}</button> : null}
             </header>
-            {!profile ? <p className="empty-state">Cargando perfil…</p> : profile.trips.length ? <div className="trip-list">{profile.trips.map((trip) => <TripEntry trip={trip} key={trip.id} onDelete={user?.id === trip.user.id ? deleteTrip : undefined} />)}</div> : <p className="empty-state prominent">{viewingOwnProfile ? 'Todavía no registraste viajes.' : 'Este perfil todavía no tiene viajes.'}</p>}
+            {profileError ? <div className="error-panel" role="alert"><strong>No pudimos cargar el perfil.</strong><span>{profileError}</span><button onClick={() => setProfileRetry((value) => value + 1)}>Reintentar</button></div> : !profile ? <p className="empty-state">Cargando perfil…</p> : profile.trips.length ? <div className="trip-list">{profile.trips.map((trip) => <TripEntry trip={trip} key={trip.id} onDelete={user?.id === trip.user.id ? deleteTrip : undefined} />)}</div> : <p className="empty-state prominent">{viewingOwnProfile ? 'Todavía no registraste viajes.' : 'Este perfil todavía no tiene viajes.'}</p>}
+          </section>
+        ) : (
+          <section className="not-found" aria-labelledby="not-found-title">
+            <span>404</span>
+            <h1 id="not-found-title">Este recorrido no existe.</h1>
+            <p>La página pudo haberse movido o el perfil que buscás no está disponible.</p>
+            <button className="primary-action" onClick={() => navigate('explore')}>Volver al inicio</button>
           </section>
         )}
       </main>
-      <footer className="site-footer"><span>Letterbondi: porque cada viaje en colectivo merece su propia reseña.</span><a href="/privacidad.html">Privacidad</a></footer>
+      <footer className="site-footer">
+        <span className="footer-copy">Letterbondi: porque cada viaje en colectivo merece su propia reseña.</span>
+        <div className="footer-links">
+          <a href="/privacidad.html">Privacidad</a>
+          <a className="github-link" href="https://github.com/joaquin-gerez/letterbondi" target="_blank" rel="noreferrer" aria-label="Letterbondi en GitHub" title="Ver código en GitHub">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.88c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.57 9.57 0 0 1 12 6.82a9.6 9.6 0 0 1 2.5.34c1.91-1.3 2.75-1.03 2.75-1.03.55 1.37.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.86v2.76c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+          </a>
+        </div>
+      </footer>
 
       {authOpen && <AuthDialog intent={pendingTrip ? 'save-trip' : 'default'} onClose={() => setAuthOpen(false)} onAuthenticated={(nextUser) => void authenticated(nextUser)} onContinueAnonymous={pendingTrip ? continueAnonymously : undefined} />}
+      {detailsLine && <LineDetailsDialog line={detailsLine} onClose={() => setDetailsLine(null)} onReview={() => { setDetailsLine(null); setLogOpen(true); }} />}
       {logOpen && <LogTripDialog lines={publicLines} initialLineId={selectedLineId ?? undefined} onClose={() => setLogOpen(false)} onSubmit={submitTrip} />}
     </div>
   );

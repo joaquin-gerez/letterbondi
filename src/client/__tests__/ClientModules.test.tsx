@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { TransportLine, TripLog } from '../../shared/types';
+import type { MemberSummary, TransportLine, TripLog } from '../../shared/types';
 import { api } from '../api';
 import { anonymousColor, anonymousVariant } from '../components/AnonymousBadge';
 import { AuthDialog } from '../components/AuthDialog';
@@ -8,6 +8,8 @@ import { Header } from '../components/Header';
 import { lineCardColors, LineCard } from '../components/LineCard';
 import { localDateValue, LogTripDialog } from '../components/LogTripDialog';
 import { Modal } from '../components/Modal';
+import { MembersView } from '../components/MembersView';
+import { Pagination } from '../components/Pagination';
 import { RatingInput } from '../components/RatingInput';
 import { TripEntry } from '../components/TripEntry';
 
@@ -24,7 +26,10 @@ const trip: TripLog = {
   line: { id: line.id, slug: line.slug, name: line.name, shortName: line.shortName, color: line.color, textColor: line.textColor, city: line.city, province: line.province },
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('componentes de presentación', () => {
   it('Header adapta navegación y acciones a la sesión', () => {
@@ -88,6 +93,43 @@ describe('componentes de presentación', () => {
     expect(traveledAt.closest('small')).toHaveTextContent('AMBA, 20 de agosto de 2026');
   });
 
+  it('TripEntry comparte una imagen sin identificadores internos', async () => {
+    const fillText = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '', font: '', fillRect: vi.fn(), fillText,
+      measureText: (text: string) => ({ width: text.length * 20 }),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, callback) {
+      expect(this.width).toBe(1200);
+      expect(this.height).toBe(675);
+      callback(new Blob(['png'], { type: 'image/png' }));
+    });
+    const share = vi.fn().mockResolvedValue(undefined);
+    const canShare = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const createObjectURL = vi.fn().mockReturnValue('blob:review');
+    vi.stubGlobal('navigator', { share, canShare });
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() });
+
+    render(<TripEntry trip={trip} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Compartir' }));
+
+    await waitFor(() => expect(share).toHaveBeenCalledOnce());
+    const data = share.mock.calls[0]![0] as ShareData;
+    expect(data.files?.[0]).toMatchObject({ name: 'letterbondi-resena.png', type: 'image/png' });
+    const imageText = fillText.mock.calls.map(([text]) => text).join(' ');
+    expect(imageText).toContain('LETTERBONDI');
+    expect(imageText).toContain('Línea 60');
+    expect(imageText).toContain('@ana');
+    expect(imageText).toContain('Llegó a horario.');
+    expect(imageText).not.toContain(trip.id);
+    expect(imageText).not.toContain(trip.user.id);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Compartir' }));
+    await waitFor(() => expect(download).toHaveBeenCalledOnce());
+    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+  });
+
   it('TripEntry oculta el identificador anónimo y distribuye colores estables por reseña', () => {
     const anonymousTrip: TripLog = { ...trip, user: { id: 'anon-identity-42', username: 'Anon vr7182gcq', kind: 'anonymous', color: '#3aa6ff' } };
     const { rerender } = render(<TripEntry trip={anonymousTrip} />);
@@ -107,7 +149,7 @@ describe('componentes de presentación', () => {
   it('Modal cierra con Escape, backdrop y botón accesible', () => {
     const onClose = vi.fn();
     const { rerender } = render(<Modal title="Prueba" onClose={onClose}><p>Contenido</p></Modal>);
-    expect(screen.getByRole('dialog', { name: 'Prueba' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Prueba' })).toHaveFocus();
     expect(document.body).toHaveClass('modal-open');
     fireEvent.keyDown(document, { key: 'Escape' });
     fireEvent.mouseDown(screen.getByRole('presentation'));
@@ -125,6 +167,30 @@ describe('componentes de presentación', () => {
     expect(radios[1]).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(radios[4]!);
     expect(onChange).toHaveBeenCalledWith(5);
+  });
+
+  it('Pagination mantiene estable la cantidad de controles al avanzar', () => {
+    const { rerender } = render(<Pagination currentPage={1} totalPages={66} onChange={vi.fn()} />);
+    expect(screen.getByRole('navigation', { name: 'Páginas del catálogo' }).children).toHaveLength(9);
+    rerender(<Pagination currentPage={5} totalPages={66} onChange={vi.fn()} />);
+    expect(screen.getByRole('navigation', { name: 'Páginas del catálogo' }).children).toHaveLength(9);
+    expect(screen.getByRole('button', { name: 'Página 5' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('MembersView busca usuarios sin distinguir mayúsculas ni diacríticos', () => {
+    const members: MemberSummary[] = [
+      { id: 'user-1', username: 'José', reviewCount: 2, followerCount: 1, followingCount: 0 },
+      { id: 'user-2', username: 'marta', reviewCount: 1, followerCount: 0, followingCount: 0 },
+    ];
+    render(<MembersView members={members} loading={false} onOpenProfile={vi.fn()} />);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar por usuario' }), { target: { value: 'JOSE' } });
+    expect(screen.getByRole('status')).toHaveTextContent('1 de 2 miembros');
+    expect(screen.getByRole('button', { name: /@José/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /@marta/ })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar por usuario' }), { target: { value: 'nadie' } });
+    expect(screen.getByText('No encontramos miembros para “nadie”.')).toBeInTheDocument();
   });
 });
 
