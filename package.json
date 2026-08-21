@@ -1,0 +1,50 @@
+{
+  "name": "letterbondi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Archivo social de viajes en transporte público argentino",
+  "type": "module",
+  "main": "dist/server/server/index.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:client": "vite",
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build": "npm run clean && npm run build:client && npm run build:server",
+    "start": "node dist/server/server/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "check": "npm run test && npm run typecheck && npm run build",
+    "seed": "tsx src/server/db/seed.ts"
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
+    "@libsql/client": "^0.17.4",
+    "dotenv": "^17.2.2",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/supertest": "^6.0.3",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^9.2.1",
+    "jsdom": "^30.0.1",
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.2",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.11"
+  }
+}

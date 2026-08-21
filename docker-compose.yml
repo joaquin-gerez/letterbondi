@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: file:/app/data/letterbondi.db
+    volumes:
+      - letterbondi_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  letterbondi_data:
