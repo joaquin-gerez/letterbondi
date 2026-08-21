@@ -34,7 +34,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === '/api/lines') return response([line, trolleybus]);
-      if (url === '/api/trips') return response([]);
+      if (url === '/api/trips' || url === `/api/trips?lineId=${line.id}`) return response([]);
       if (url === '/api/stats') return response({ lineCount: 1, logCount: 0, userCount: 0, provinceCount: 1 });
       if (url === '/api/auth/me') return response({ user: null });
       return response({ error: 'Ruta no encontrada' }, 404);
@@ -46,6 +46,7 @@ describe('App', () => {
     expect(within(screen.getByRole('group', { name: 'Filtrar por modo' })).queryByRole('button', { name: 'Trolebuses' })).not.toBeInTheDocument();
     expect(screen.getByText('Todavía no hay reseñas.')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Línea 60').closest('button')!);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(`/api/trips?lineId=${line.id}`, expect.anything()));
     expect(screen.getByRole('button', { name: 'Reseñar Línea 60' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Estás viendo las reseñas de Línea 60');
     expect(screen.getByRole('button', { name: 'Ver todas las reseñas' })).toBeInTheDocument();

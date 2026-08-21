@@ -15,9 +15,11 @@ export const openApiDocument = {
         responses: { '201': { description: 'Viaje registrado' }, '429': { description: 'Límite de publicaciones anónimas alcanzado' } },
       },
     },
+    '/trips/{id}': { delete: { summary: 'Eliminar un viaje propio o moderarlo', security: [{ cookieAuth: [] }, { bearerAuth: [] }], responses: { '204': { description: 'Viaje eliminado' }, '404': { description: 'No encontrado o no autorizado' } } } },
     '/auth/register': { post: { summary: 'Crear una cuenta', responses: { '201': { description: 'Cuenta creada' } } } },
     '/auth/login': { post: { summary: 'Iniciar sesión', responses: { '200': { description: 'Sesión iniciada' } } } },
     '/auth/logout': { post: { summary: 'Cerrar sesión', responses: { '204': { description: 'Sesión cerrada' } } } },
+    '/auth/account': { delete: { summary: 'Eliminar la cuenta autenticada y sus datos', responses: { '204': { description: 'Cuenta eliminada' } } } },
     '/auth/me': { get: { summary: 'Sesión actual', responses: { '200': { description: 'Usuario o null' } } } },
     '/members': { get: { summary: 'Listado público de miembros', responses: { '200': { description: 'Miembros ordenados por actividad' } } } },
     '/users/{username}': { get: { summary: 'Perfil y diario públicos', responses: { '200': { description: 'Perfil' }, '404': { description: 'No encontrado' } } } },
@@ -27,5 +29,5 @@ export const openApiDocument = {
     },
     '/stats': { get: { summary: 'Totales de la plataforma', responses: { '200': { description: 'Totales' } } } },
   },
-  components: { securitySchemes: { cookieAuth: { type: 'apiKey', in: 'cookie', name: 'letterbondi_session' } } },
+  components: { securitySchemes: { cookieAuth: { type: 'apiKey', in: 'cookie', name: 'letterbondi_session' }, bearerAuth: { type: 'http', scheme: 'bearer' } } },
 } as const;

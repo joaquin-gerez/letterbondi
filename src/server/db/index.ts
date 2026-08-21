@@ -67,6 +67,12 @@ export async function initDatabase(db: Client): Promise<void> {
   await migrateUsersToOptionalEmail(db);
   await migrateAnonymousAuthors(db);
   await migrateTripReviewMetadata(db);
+  await db.execute({ sql: 'DELETE FROM sessions WHERE expires_at <= ?', args: [new Date().toISOString()] });
+  await db.execute({
+    sql: `DELETE FROM anonymous_identities WHERE last_seen_at < ?
+      AND NOT EXISTS (SELECT 1 FROM trip_logs WHERE anonymous_identity_id = anonymous_identities.id)`,
+    args: [new Date(Date.now() - 90 * 86_400_000).toISOString()],
+  });
   await db.batch(
     INITIAL_LINES.map((line) => ({
       sql: `INSERT INTO transport_lines (
@@ -182,6 +188,16 @@ export async function addTrip(db: Client, author: TripAuthor, input: CreateTripI
   return mapTrip(result.rows[0] as Record<string, unknown>);
 }
 
+export async function deleteTrip(db: Client, id: string, author: TripAuthor | null, admin: boolean): Promise<boolean> {
+  const result = admin
+    ? await db.execute({ sql: 'DELETE FROM trip_logs WHERE id = ?', args: [id] })
+    : await db.execute({
+      sql: 'DELETE FROM trip_logs WHERE id = ? AND (user_id = ? OR anonymous_identity_id = ?)',
+      args: [id, author?.userId ?? null, author?.anonymousIdentityId ?? null],
+    });
+  return result.rowsAffected > 0;
+}
+
 export async function createAnonymousIdentity(db: Client, identity: { tokenHash: string; displayName: string; color: string }): Promise<AnonymousIdentity> {
   const id = randomUUID();
   const now = new Date().toISOString();
@@ -219,6 +235,10 @@ export async function createUser(db: Client, user: { username: string; email?: s
   const email = user.email ?? null;
   await db.execute({ sql: 'INSERT INTO users (id, username, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)', args: [id, user.username, email, user.passwordHash, new Date().toISOString()] });
   return { id, username: user.username, email };
+}
+
+export async function deleteUser(db: Client, userId: string): Promise<void> {
+  await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [userId] });
 }
 
 export async function findUserByUsername(db: Client, username: string): Promise<(SessionUser & { passwordHash: string }) | null> {

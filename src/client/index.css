@@ -184,6 +184,7 @@ main { min-height: 70vh; }
 .trip-location-date time { color: inherit; }
 .trip-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 13px; padding: 0; list-style: none; }
 .trip-tags li { border: 1px solid var(--rule); border-radius: 999px; padding: 3px 8px; color: var(--muted); font-size: .7rem; }
+.delete-trip, .delete-account { border: 0; background: transparent; color: var(--danger); padding: 4px 0; cursor: pointer; font: inherit; font-size: var(--text-xs); text-decoration: underline; }
 
 .empty-state { margin: 0; padding: 30px 0; color: var(--muted); border-bottom: 1px solid var(--rule); }
 .empty-state.prominent { min-height: 180px; display: grid; place-content: center; justify-items: center; gap: 16px; border-top: 1px solid var(--rule); text-align: center; }
@@ -204,6 +205,7 @@ main { min-height: 70vh; }
 .follow-action { min-height: 38px; border: 1px solid var(--accent); border-radius: 2px; background: transparent; color: var(--accent); padding: 0 16px; cursor: pointer; font-size: var(--text-sm); font-weight: 720; }
 .follow-action:hover { background: var(--accent); color: var(--paper-ink); }
 .follow-action:disabled { opacity: .55; cursor: wait; }
+.profile-actions { display: grid; justify-items: end; gap: 9px; }
 
 .members-view { min-height: 640px; }
 .members-heading { padding-bottom: 22px; border-bottom: 1px solid var(--rule-strong); }
@@ -219,7 +221,8 @@ main { min-height: 70vh; }
 .notice { position: fixed; z-index: 90; top: 86px; left: 24px; max-width: min(380px, calc(100vw - 48px)); display: flex; align-items: center; gap: 10px; background: var(--paper); color: var(--paper-ink); border-left: 5px solid var(--success); padding: 12px 18px 12px 12px; font-size: var(--text-sm); box-shadow: 0 12px 32px rgba(0, 0, 0, .28); pointer-events: none; will-change: transform, opacity; animation: notice-bus-exit 2.2s var(--ease) forwards; }
 .notice img { width: 36px; height: 22px; flex: 0 0 auto; object-fit: contain; }
 
-.site-footer { max-width: var(--max); min-height: 90px; margin: 0 auto; padding: 24px; display: grid; place-items: center; border-top: 1px solid var(--rule); color: #777a72; font-size: var(--text-xs); text-align: center; }
+.site-footer { max-width: var(--max); min-height: 90px; margin: 0 auto; padding: 24px; display: flex; align-items: center; justify-content: center; gap: 16px; border-top: 1px solid var(--rule); color: #777a72; font-size: var(--text-xs); text-align: center; }
+.site-footer a { color: var(--muted); }
 
 .modal-open { overflow: hidden; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgba(4, 7, 9, .88); }

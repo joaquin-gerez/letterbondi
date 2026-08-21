@@ -5,7 +5,7 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${value}T12:00:00`));
 }
 
-export function TripEntry({ trip }: { trip: TripLog }) {
+export function TripEntry({ trip, onDelete }: { trip: TripLog; onDelete?: (trip: TripLog) => void }) {
   const activity = trip.reviewText ? 'dejó una reseña en' : trip.liked ? 'marcó que le gustó' : 'puntuó';
   const registered = trip.user.kind === 'registered';
 
@@ -30,6 +30,7 @@ export function TripEntry({ trip }: { trip: TripLog }) {
         </div>
         {trip.reviewText && <p>{trip.reviewText}</p>}
         {trip.tags.length > 0 && <ul className="trip-tags" aria-label="Tags">{trip.tags.map((tag) => <li key={tag}>{tag}</li>)}</ul>}
+        {onDelete && <button type="button" className="delete-trip" onClick={() => onDelete(trip)}>Eliminar reseña</button>}
       </div>
     </article>
   );

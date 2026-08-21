@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CreateTripInput, MemberSummary, PlatformStats, ProfileResponse, SessionUser, TransportLine, TransportMode, TripLog } from '../shared/types';
 import { api } from './api';
 import { AuthDialog } from './components/AuthDialog';
@@ -36,8 +36,12 @@ function viewFromPath(): 'explore' | 'diary' | 'members' {
 export default function App() {
   const [lines, setLines] = useState<TransportLine[]>([]);
   const [trips, setTrips] = useState<TripLog[]>([]);
+  const [selectedTrips, setSelectedTrips] = useState<TripLog[] | null>(null);
+  const [selectedTripsError, setSelectedTripsError] = useState<string | null>(null);
+  const [selectedTripsRetry, setSelectedTripsRetry] = useState(0);
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [anonymousId, setAnonymousId] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -55,12 +59,14 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [followBusy, setFollowBusy] = useState(false);
   const [page, setPage] = useState(1);
+  const selectedLineIdRef = useRef(selectedLineId);
+  selectedLineIdRef.current = selectedLineId;
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
       const [nextLines, nextTrips, nextStats, session] = await Promise.all([api.lines(), api.trips(), api.stats(), api.me()]);
-      setLines(nextLines); setTrips(nextTrips); setStats(nextStats); setUser(session.user);
+      setLines(nextLines); setTrips(nextTrips); setStats(nextStats); setUser(session.user); setAnonymousId(session.anonymousId);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'No pudimos cargar Letterbondi');
     } finally { setLoading(false); }
@@ -68,7 +74,25 @@ export default function App() {
 
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => subscribeToTrips((trip) => setTrips((current) => prependTrip(current, trip))), []);
+  useEffect(() => subscribeToTrips((trip) => {
+    setTrips((current) => prependTrip(current, trip));
+    if (selectedLineIdRef.current === trip.line.id) setSelectedTrips((current) => prependTrip(current ?? [], trip));
+  }), []);
+
+  useEffect(() => {
+    if (!selectedLineId) { setSelectedTrips(null); return; }
+    let cancelled = false;
+    setSelectedTrips(null);
+    setSelectedTripsError(null);
+    api.trips(selectedLineId).then((nextTrips) => { if (!cancelled) setSelectedTrips(nextTrips); })
+      .catch((reason) => {
+        if (!cancelled) {
+          setSelectedTrips([]);
+          setSelectedTripsError(reason instanceof Error ? reason.message : 'No pudimos cargar las reseñas');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [selectedLineId, selectedTripsRetry]);
 
   useEffect(() => {
     if (view !== 'diary' || !profileUsername) return;
@@ -110,7 +134,7 @@ export default function App() {
   const totalPages = Math.max(1, Math.ceil(filteredLines.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const displayedLines = filteredLines.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const visibleTrips = selectedLineId ? trips.filter((trip) => trip.line.id === selectedLineId) : trips;
+  const visibleTrips = selectedLineId ? selectedTrips : trips;
   const selectedLine = publicLines.find((line) => line.id === selectedLineId) ?? null;
   const hasCatalogFilters = Boolean(query || mode || province || selectedLineId);
   const viewingOwnProfile = Boolean(user && profileUsername === user.username);
@@ -176,6 +200,30 @@ export default function App() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'No pudimos cerrar la sesión'); }
   }
 
+  async function deleteAccount() {
+    if (!window.confirm('¿Eliminar tu cuenta y todas tus reseñas? Esta acción no se puede deshacer.')) return;
+    try {
+      await api.deleteAccount();
+      setUser(null); setProfile(null); navigate('explore');
+      setNotice('Tu cuenta y tus reseñas fueron eliminadas.');
+      void load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'No pudimos eliminar tu cuenta'); }
+  }
+
+  async function deleteTrip(trip: TripLog) {
+    if (!window.confirm('¿Eliminar esta reseña?')) return;
+    try {
+      await api.deleteTrip(trip.id);
+      setTrips((current) => current.filter((item) => item.id !== trip.id));
+      setSelectedTrips((current) => current?.filter((item) => item.id !== trip.id) ?? null);
+      setProfile((current) => current ? { ...current, trips: current.trips.filter((item) => item.id !== trip.id) } : current);
+      setNotice('Reseña eliminada.');
+      void Promise.all([api.lines(), api.stats()]).then(([nextLines, nextStats]) => {
+        setLines(nextLines); setStats(nextStats);
+      }).catch(() => undefined);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'No pudimos eliminar la reseña'); }
+  }
+
   function navigate(nextView: 'explore' | 'diary') {
     if (nextView === 'diary') {
       if (!user) return;
@@ -215,13 +263,16 @@ export default function App() {
     } finally { setFollowBusy(false); }
   }
 
-  async function tripCreated(trip: TripLog, profileUsername = user?.username) {
+  function tripCreated(trip: TripLog, profileUsername = user?.username) {
     setLogOpen(false);
     setTrips((current) => prependTrip(current, trip));
+    if (trip.user.kind === 'anonymous') setAnonymousId(trip.user.id);
+    if (selectedLineId === trip.line.id) setSelectedTrips((current) => prependTrip(current ?? [], trip));
     setNotice(trip.user.kind === 'anonymous' ? 'Reseña publicada como Anon.' : 'Reseña guardada en tu perfil.');
-    const [nextLines, nextStats] = await Promise.all([api.lines(), api.stats()]);
-    setLines(nextLines); setStats(nextStats);
-    if (profileUsername) setProfile(await api.profile(profileUsername));
+    void Promise.all([api.lines(), api.stats()]).then(([nextLines, nextStats]) => {
+      setLines(nextLines); setStats(nextStats);
+    }).catch(() => undefined);
+    if (profileUsername) void api.profile(profileUsername).then(setProfile).catch(() => undefined);
   }
 
   async function submitTrip(input: CreateTripInput) {
@@ -231,7 +282,7 @@ export default function App() {
       setAuthOpen(true);
       return;
     }
-    await tripCreated(await api.createTrip(input));
+    tripCreated(await api.createTrip(input));
   }
 
   async function authenticated(nextUser: SessionUser) {
@@ -239,9 +290,9 @@ export default function App() {
     setAuthOpen(false);
     if (!pendingTrip) return;
     const tripToSave = pendingTrip;
-    setPendingTrip(null);
     try {
-      await tripCreated(await api.createTrip(tripToSave), nextUser.username);
+      tripCreated(await api.createTrip(tripToSave), nextUser.username);
+      setPendingTrip(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Ingresaste, pero no pudimos guardar el viaje');
     }
@@ -253,7 +304,7 @@ export default function App() {
     const trip = await api.createTrip(tripToSave);
     setPendingTrip(null);
     setAuthOpen(false);
-    await tripCreated(trip, undefined);
+    tripCreated(trip, undefined);
   }
 
   return (
@@ -290,7 +341,7 @@ export default function App() {
                 <div><h2 id="activity-title">Actividad reciente</h2></div>
                 {selectedLine ? <div className="activity-filter-status" role="status"><span>Estás viendo las reseñas de <strong>{selectedLine.name}</strong></span><button className="clear-filter" onClick={() => setSelectedLineId(null)}>Ver todas las reseñas</button></div> : null}
               </header>
-              {visibleTrips.length ? <div className="trip-list">{visibleTrips.map((trip) => <TripEntry trip={trip} key={trip.id} />)}</div> : <div className="empty-state prominent"><p>{selectedLine ? `Todavía nadie reseñó la ${selectedLine.name}.` : 'Todavía no hay reseñas.'}</p><button className="primary-action" onClick={requestLog}>Reseñar el primer viaje</button></div>}
+              {selectedTripsError ? <div className="error-panel" role="alert"><strong>No pudimos cargar las reseñas.</strong><span>{selectedTripsError}</span><button onClick={() => setSelectedTripsRetry((value) => value + 1)}>Reintentar</button></div> : visibleTrips === null ? <p className="empty-state">Cargando reseñas…</p> : visibleTrips.length ? <div className="trip-list">{visibleTrips.map((trip) => <TripEntry trip={trip} key={trip.id} onDelete={user?.id === trip.user.id || anonymousId === trip.user.id ? deleteTrip : undefined} />)}</div> : <div className="empty-state prominent"><p>{selectedLine ? `Todavía nadie reseñó la ${selectedLine.name}.` : 'Todavía no hay reseñas.'}</p><button className="primary-action" onClick={requestLog}>Reseñar el primer viaje</button></div>}
             </section>
           </>
         ) : view === 'members' ? (
@@ -302,15 +353,15 @@ export default function App() {
                 <h1 id="diary-title">Diario de @{profile?.user.username ?? profileUsername}</h1>
                 {profile ? <div className="profile-stats"><span><strong>{profile.trips.length}</strong> reseñas</span><span><strong>{profile.followerCount}</strong> seguidores</span><span><strong>{profile.followingCount}</strong> siguiendo</span></div> : null}
               </div>
-              {viewingOwnProfile ? <button className="primary-action" onClick={requestLog}>Reseñar un viaje</button> : user && profile ? <button className="follow-action" onClick={() => void toggleFollow()} disabled={followBusy}>{profile.isFollowing ? 'Siguiendo' : 'Seguir'}</button> : null}
+              {viewingOwnProfile ? <div className="profile-actions"><button className="primary-action" onClick={requestLog}>Reseñar un viaje</button><button className="delete-account" onClick={() => void deleteAccount()}>Eliminar cuenta</button></div> : user && profile ? <button className="follow-action" onClick={() => void toggleFollow()} disabled={followBusy}>{profile.isFollowing ? 'Siguiendo' : 'Seguir'}</button> : null}
             </header>
-            {!profile ? <p className="empty-state">Cargando perfil…</p> : profile.trips.length ? <div className="trip-list">{profile.trips.map((trip) => <TripEntry trip={trip} key={trip.id} />)}</div> : <p className="empty-state prominent">{viewingOwnProfile ? 'Todavía no registraste viajes.' : 'Este perfil todavía no tiene viajes.'}</p>}
+            {!profile ? <p className="empty-state">Cargando perfil…</p> : profile.trips.length ? <div className="trip-list">{profile.trips.map((trip) => <TripEntry trip={trip} key={trip.id} onDelete={user?.id === trip.user.id ? deleteTrip : undefined} />)}</div> : <p className="empty-state prominent">{viewingOwnProfile ? 'Todavía no registraste viajes.' : 'Este perfil todavía no tiene viajes.'}</p>}
           </section>
         )}
       </main>
-      <footer className="site-footer">Letterbondi: porque cada viaje en colectivo merece su propia reseña.</footer>
+      <footer className="site-footer"><span>Letterbondi: porque cada viaje en colectivo merece su propia reseña.</span><a href="/privacidad.html">Privacidad</a></footer>
 
-      {authOpen && <AuthDialog intent={pendingTrip ? 'save-trip' : 'default'} onClose={() => { setAuthOpen(false); setPendingTrip(null); }} onAuthenticated={(nextUser) => void authenticated(nextUser)} onContinueAnonymous={pendingTrip ? continueAnonymously : undefined} />}
+      {authOpen && <AuthDialog intent={pendingTrip ? 'save-trip' : 'default'} onClose={() => setAuthOpen(false)} onAuthenticated={(nextUser) => void authenticated(nextUser)} onContinueAnonymous={pendingTrip ? continueAnonymously : undefined} />}
       {logOpen && <LogTripDialog lines={publicLines} initialLineId={selectedLineId ?? undefined} onClose={() => setLogOpen(false)} onSubmit={submitTrip} />}
     </div>
   );

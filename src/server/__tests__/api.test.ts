@@ -46,6 +46,10 @@ describe('Letterbondi API', () => {
     expect(third.status).toBe(201);
     const limited = await anonymousAgent.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 2, traveledAt: '2026-08-21' });
     expect(limited.status).toBe(429);
+    expect((await anonymousAgent.get('/api/auth/me')).body.anonymousId).toBe(first.body.user.id);
+    expect((await anonymousAgent.delete(`/api/trips/${first.body.id}`)).status).toBe(204);
+    await anonymousAgent.post('/api/auth/register').send({ username: 'antesanonimo', password: 'contraseña-larga' });
+    expect((await anonymousAgent.delete(`/api/trips/${second.body.id}`)).status).toBe(204);
   });
 
   it('rechaza datos inválidos aunque exista una sesión', async () => {
@@ -81,7 +85,7 @@ describe('Letterbondi API', () => {
 
   it('lista perfiles y permite seguirlos sin duplicar relaciones', async () => {
     const otherAgent = request.agent(createApp(db, { secureCookies: false }));
-    expect((await otherAgent.post('/api/auth/register').send({ username: 'marta', password: '1234' })).status).toBe(201);
+    expect((await otherAgent.post('/api/auth/register').send({ username: 'marta', password: '1234567890' })).status).toBe(201);
 
     const members = await agent.get('/api/members');
     expect(members.status).toBe(200);
@@ -101,5 +105,40 @@ describe('Letterbondi API', () => {
 
     expect((await agent.delete('/api/users/marta/follow')).body).toEqual({ following: false });
     expect((await agent.get('/api/users/marta')).body).toMatchObject({ followerCount: 0, isFollowing: false });
+  });
+
+  it('aplica Origin, no-store y límites de autenticación', async () => {
+    const securityAgent = request(createApp(db, { secureCookies: false }));
+    expect((await securityAgent.post('/api/auth/login').set('Origin', 'https://evil.example').send({ username: 'nadie', password: 'incorrecta' })).status).toBe(403);
+    expect((await securityAgent.get('/api/auth/me')).headers['cache-control']).toBe('no-store');
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect((await securityAgent.post('/api/auth/login').send({ username: 'nadie', password: 'incorrecta' })).status).toBe(401);
+    }
+    const limited = await securityAgent.post('/api/auth/login').send({ username: 'nadie', password: 'incorrecta' });
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('permite borrar viajes solo al autor o al token de moderación', async () => {
+    const owner = request.agent(createApp(db, { secureCookies: false }));
+    const outsider = request.agent(createApp(db, { secureCookies: false }));
+    await owner.post('/api/auth/register').send({ username: 'propietario', password: 'contraseña-larga' });
+    const first = await owner.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 5, traveledAt: '2026-08-21' });
+    expect((await outsider.delete(`/api/trips/${first.body.id}`)).status).toBe(404);
+    expect((await owner.delete(`/api/trips/${first.body.id}`)).status).toBe(204);
+
+    const second = await owner.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 4, traveledAt: '2026-08-21' });
+    const adminToken = 'a'.repeat(32);
+    const moderator = request(createApp(db, { secureCookies: false, adminToken }));
+    expect((await moderator.delete(`/api/trips/${second.body.id}`).set('Authorization', `Bearer ${adminToken}`)).status).toBe(204);
+  });
+
+  it('permite eliminar la cuenta y todo su contenido', async () => {
+    const disposable = request.agent(createApp(db, { secureCookies: false }));
+    await disposable.post('/api/auth/register').send({ username: 'descartable', password: 'contraseña-larga' });
+    await disposable.post('/api/trips').send({ lineId: 'amba-colectivo-60', rating: 4, traveledAt: '2026-08-21' });
+    expect((await disposable.delete('/api/auth/account')).status).toBe(204);
+    expect((await disposable.get('/api/auth/me')).body.user).toBeNull();
+    expect((await disposable.get('/api/users/descartable')).status).toBe(404);
   });
 });

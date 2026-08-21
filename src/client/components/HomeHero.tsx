@@ -2,14 +2,6 @@ import { useEffect, useState } from 'react';
 import type { PlatformStats } from '../../shared/types';
 
 const HERO_IMAGES = [
-  '/bondis/1.jpg',
-  '/bondis/2.jpg',
-  '/bondis/3.jpg',
-  '/bondis/4.jpg',
-  '/bondis/5.jpg',
-  '/bondis/6.jpg',
-  '/bondis/7.jpg',
-  '/bondis/8.jpg',
   '/bondis/9.jpg',
   '/bondis/10.jpg',
   '/bondis/11.jpg',

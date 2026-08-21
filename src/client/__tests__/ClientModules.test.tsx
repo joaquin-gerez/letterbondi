@@ -137,7 +137,7 @@ describe('diálogos', () => {
     fireEvent.click(screen.getByRole('button', { name: 'No tengo cuenta, registrarme' }));
     fireEvent.change(screen.getByLabelText('Usuario'), { target: { value: 'ana' } });
     fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'contraseña-segura' } });
-    expect(screen.getByLabelText('Contraseña')).toHaveAttribute('minlength', '4');
+    expect(screen.getByLabelText('Contraseña')).toHaveAttribute('minlength', '10');
     fireEvent.click(screen.getByRole('button', { name: 'Crear cuenta' }));
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith(user));
     expect(api.register).toHaveBeenCalledWith({ username: 'ana', password: 'contraseña-segura' });

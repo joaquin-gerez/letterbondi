@@ -43,4 +43,11 @@ describe('actividad en tiempo real', () => {
     client.close();
     await once(client, 'close');
   });
+
+  it('rechaza orígenes ajenos', async () => {
+    const client = new WebSocket(`ws://127.0.0.1:${port}/api/live`, { origin: 'https://evil.example' });
+    const [, response] = await once(client, 'unexpected-response');
+    expect(response.statusCode).toBe(403);
+    response.destroy();
+  });
 });

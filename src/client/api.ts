@@ -27,7 +27,7 @@ export const api = {
   lines: () => request<TransportLine[]>('/api/lines'),
   trips: (lineId?: string) => request<TripLog[]>(`/api/trips${lineId ? `?lineId=${encodeURIComponent(lineId)}` : ''}`),
   stats: () => request<PlatformStats>('/api/stats'),
-  me: () => request<{ user: SessionUser | null }>('/api/auth/me'),
+  me: () => request<{ user: SessionUser | null; anonymousId: string | null }>('/api/auth/me'),
   members: () => request<MemberSummary[]>('/api/members'),
   profile: (username: string) => request<ProfileResponse>(`/api/users/${encodeURIComponent(username)}`),
   follow: (username: string) => request<{ following: true }>(`/api/users/${encodeURIComponent(username)}/follow`, { method: 'POST' }),
@@ -35,5 +35,7 @@ export const api = {
   register: (input: AuthInput) => request<{ user: SessionUser }>('/api/auth/register', { method: 'POST', body: JSON.stringify(input) }),
   login: (input: AuthInput) => request<{ user: SessionUser }>('/api/auth/login', { method: 'POST', body: JSON.stringify(input) }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
+  deleteAccount: () => request<void>('/api/auth/account', { method: 'DELETE' }),
   createTrip: (input: CreateTripInput) => request<TripLog>('/api/trips', { method: 'POST', body: JSON.stringify(input) }),
+  deleteTrip: (id: string) => request<void>(`/api/trips/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };

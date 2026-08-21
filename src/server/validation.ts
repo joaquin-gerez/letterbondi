@@ -6,7 +6,7 @@ const usernameSchema = z.string().trim().min(2, 'Usá al menos 2 caracteres').ma
 
 export const registerSchema = z.object({
   username: usernameSchema,
-  password: z.string().min(4, 'Usá al menos 4 caracteres').max(128),
+  password: z.string().min(10, 'Usá al menos 10 caracteres').max(128),
 });
 
 export const loginSchema = z.object({
@@ -20,7 +20,7 @@ export const tripSchema = z.object({
   reviewText: z.string().trim().max(2000).optional(),
   liked: z.boolean().optional(),
   tags: z.array(z.string().trim().min(1).max(32)).max(5).optional(),
-  traveledAt: z.iso.date(),
+  traveledAt: z.iso.date().refine((value) => value <= new Date().toISOString().slice(0, 10), 'La fecha del viaje no puede ser futura'),
 });
 
 export function validationMessage(error: z.ZodError): string {

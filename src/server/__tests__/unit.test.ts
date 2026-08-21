@@ -25,10 +25,11 @@ describe('autenticación', () => {
 
 describe('validación de entrada', () => {
   it('normaliza el usuario y no exige email', () => {
-    const parsed = registerSchema.parse({ username: ' PASAJERO_1 ', password: '1234' });
-    expect(parsed).toEqual({ username: 'pasajero_1', password: '1234' });
-    expect(registerSchema.safeParse({ username: 'joaquín-gerez', password: 'asd123123' }).success).toBe(true);
+    const parsed = registerSchema.parse({ username: ' PASAJERO_1 ', password: '1234567890' });
+    expect(parsed).toEqual({ username: 'pasajero_1', password: '1234567890' });
+    expect(registerSchema.safeParse({ username: 'joaquín-gerez', password: 'asd1231234' }).success).toBe(true);
     expect(loginSchema.parse({ username: 'PASAJERO_1', password: 'x' }).username).toBe('pasajero_1');
+    expect(registerSchema.safeParse({ username: 'nuevo', password: 'corta' }).success).toBe(false);
   });
 
   it('rechaza identificadores, ratings y fechas fuera de contrato', () => {
@@ -36,6 +37,7 @@ describe('validación de entrada', () => {
     expect(user.success).toBe(false);
     if (!user.success) expect(validationMessage(user.error)).toMatch(/^Usuario:/);
     expect(tripSchema.safeParse({ lineId: '', rating: 0, traveledAt: 'hoy' }).success).toBe(false);
+    expect(tripSchema.safeParse({ lineId: 'line-60', rating: 4, traveledAt: '2999-01-01' }).success).toBe(false);
     expect(tripSchema.safeParse({ lineId: 'line-60', rating: 0, reviewText: 'Bien', liked: true, tags: ['lluvia'], traveledAt: '2026-08-20' }).success).toBe(true);
   });
 });

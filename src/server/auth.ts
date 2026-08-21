@@ -55,6 +55,11 @@ export async function currentUser(db: Database, req: Request) {
   return token ? findSessionUser(db, hashToken(token)) : null;
 }
 
+export async function currentAnonymousIdentity(db: Database, req: Request): Promise<AnonymousIdentity | null> {
+  const token = readCookie(req, ANONYMOUS_COOKIE_NAME);
+  return token ? findAnonymousIdentityByTokenHash(db, hashToken(token)) : null;
+}
+
 export async function destroySession(db: Database, req: Request, res: Response, secure: boolean): Promise<void> {
   const token = readCookie(req, SESSION_COOKIE_NAME);
   if (token) await deleteSession(db, hashToken(token));
