@@ -4,6 +4,10 @@ Este despliegue ejecuta una sola app con SQLite persistente. Solo Caddy publica
 puertos; la app queda en una red Docker interna. Caddy obtiene y renueva TLS y
 reenvía HTTP y WebSocket automáticamente.
 
+Si el VPS ya tiene un Caddy en Docker, usar `docker-compose.shared-caddy.yml`:
+levanta sólo Letterbondi y lo conecta a la red externa indicada por
+`CADDY_NETWORK`. El Caddy existente debe enviar el tráfico a `letterbondi:3000`.
+
 ## 1. Preparar DNS
 
 El VPS necesita una IP pública y los puertos TCP 80 y 443 accesibles. Si se

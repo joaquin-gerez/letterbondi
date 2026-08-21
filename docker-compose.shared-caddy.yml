@@ -1,0 +1,49 @@
+name: letterbondi
+
+services:
+  app:
+    image: letterbondi:prod
+    build:
+      context: .
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: file:/app/data/letterbondi.db
+      COOKIE_SECURE: "true"
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN is required}
+      PUBLIC_ORIGIN: https://${DOMAIN:?DOMAIN is required}
+    volumes:
+      - letterbondi_data:/app/data
+    networks:
+      shared_caddy:
+        aliases:
+          - letterbondi
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    init: true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 100
+    stop_grace_period: 30s
+
+networks:
+  shared_caddy:
+    external: true
+    name: ${CADDY_NETWORK:-portfolio_blog_2026_default}
+
+volumes:
+  letterbondi_data:
